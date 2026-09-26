@@ -56,6 +56,14 @@ kt404-youtube profile accept-policy
 
 `profile setup` ไม่ยอมรับ policy หรือเปิด browser ให้เอง ตรวจ URL/ข้อความที่แสดงใน `profile accept-policy`, อ่าน privacy policy และ [YouTube Terms of Service](https://www.youtube.com/t/terms), แล้วพิมพ์ `ยอมรับ` ด้วยตนเอง
 
+### หน้าเข้าสู่ระบบในเครื่อง
+
+เมื่อเจ้าของสั่ง `upload` หลัง profile และ policy ผ่านแล้ว โปรแกรมจะเปิดหน้า local เฉพาะกรณีที่ Windows Credential Manager ยังไม่มี OAuth credential หน้าแสดง `waiting`, `connected` หรือ `stopped` และเปิด Google OAuth Desktop flow ให้ลงชื่อเข้าใช้/ยินยอมบนหน้า Google
+
+หน้า local ใช้ดูสถานะเท่านั้น ไม่รับรหัสผ่านหรือ OTP และไม่แสดง access/refresh token เมื่อ credential บันทึกใน Windows Credential Manager สำเร็จ หน้าแสดง `connected`; จากนั้น CLI ยังต้องตรวจ channel name/handle/ID ที่สั่ง หากบัญชีไม่เข้าถึงช่องเป้าหมายหรือชื่อกำกวม โปรแกรมหยุดก่อนส่งวิดีโอ โดย credential ที่เชื่อมสำเร็จยังเก็บไว้ตามปกติ หากยกเลิกหรือ OAuth/การบันทึก credential ล้มเหลว หน้านี้แสดง `stopped` และคำสั่ง upload รอบนั้นหยุด
+
+ถ้ามี credential อยู่แล้ว หน้า local จะไม่เปิดและโปรแกรมใช้ flow refresh เดิมตามปกติ การตรวจ `dry-run` เป็น offline และไม่เปิด OAuth หรือหน้านี้
+
 ## 5. แยก OAuth verification ออกจาก YouTube API audit
 
 Google OAuth verification ใช้กับ consent screen/scopes ของ OAuth app ส่วน YouTube API compliance audit เป็นการตรวจการใช้งาน YouTube API และใช้พิจารณา quota extension หรือกรณีที่ YouTube ขอ audit; การมีอย่างใดอย่างหนึ่งไม่ได้แปลว่าอีกอย่างผ่าน

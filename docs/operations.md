@@ -35,6 +35,12 @@ kt404-youtube dry-run --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chan
 kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404"
 ```
 
+### เมื่อไม่มี OAuth credential
+
+ถ้า Windows Credential Manager ยังไม่มี credential คำสั่ง `upload` จะเปิดหน้า local แสดงสถานะ แล้วเปิด Google OAuth Desktop flow ให้เจ้าของยืนยันตัวตนบนหน้า Google หน้า local ไม่ขอรหัสผ่านและไม่แสดง token; เมื่อบันทึก credential สำเร็จ หน้าแจ้ง `connected` แล้ว CLI ตรวจช่องที่ระบุก่อนเริ่มส่งวิดีโอ หากช่องไม่ตรง/กำกวม, consent ถูกยกเลิก หรือบันทึก credential ไม่สำเร็จ คำสั่งหยุดก่อน upload
+
+credential ที่บันทึกสำเร็จยังอยู่ใน Windows Credential Manager หากชื่อช่องไม่ตรง เพื่อให้เจ้าของใช้กับคำสั่งครั้งถัดไปได้ตามต้องการ; อ่านรายละเอียดที่ [คู่มือติดตั้ง](setup.md). `dry-run` ยังคงทำงาน offline และไม่เปิด OAuth
+
 เมื่อเสร็จ ให้ตรวจคลิปและ thumbnail ใน YouTube Studio จาก URL ที่คำสั่งรายงาน แล้วเจ้าของจึงบันทึกการอนุมัติ:
 
 ```powershell

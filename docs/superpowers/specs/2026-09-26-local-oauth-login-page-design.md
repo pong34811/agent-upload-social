@@ -1,6 +1,6 @@
 # หน้า local สำหรับเชื่อม YouTube OAuth
 
-สถานะ: ออกแบบและอนุมัติในแชตเมื่อ 2026-09-26; รอผู้ใช้ตรวจเอกสารฉบับนี้
+สถานะ: ผู้ใช้อนุมัติแนวทางในแชตเมื่อ 2026-09-26; รายละเอียดการดำเนินงานอยู่ในแผน implementation
 
 ## เป้าหมาย
 
@@ -34,7 +34,7 @@
 2. เปิดหน้า status ใน browser หนึ่งแท็บ โดยหน้าเริ่มในสถานะรอ consent และอ่านสถานะจาก endpoint แบบ read-only ของ origin เดียวกัน
 3. เรียก OAuth Desktop flow เดิม ซึ่งเปิด Google sign-in/consent ใน browser; ผู้ใช้กรอกรหัสผ่านหรือยืนยันตัวตนบนโดเมน Google เท่านั้น
 4. อัปเดตสถานะเป็น connected เมื่อ credential ถูกบันทึกสำเร็จ จากนั้นสร้าง API client และให้ runner ตรวจ channel ตามที่สั่ง
-5. เมื่อ credential ถูกบันทึกแล้ว แสดง connected; เมื่อ OAuth ล้มเหลวหรือถูกปฏิเสธ แสดง stopped. หลังหน้าอ่านสถานะปลายทางแล้วให้หยุด polling และปิด local server; หากไม่มีการอ่านสถานะปลายทางให้ปิด server เมื่อครบ timeout สั้นที่กำหนดไว้ในแผน
+5. เมื่อ credential ถูกบันทึกแล้ว แสดง connected; เมื่อ OAuth ล้มเหลวหรือถูกปฏิเสธ แสดง stopped. หลังหน้าอ่านและแสดงสถานะปลายทางแล้วให้ส่ง acknowledgement ภายในเครื่อง หยุด polling และปิด local server; หากไม่มี acknowledgement ให้ปิด server เมื่อครบ timeout สั้นที่กำหนดไว้ในแผน
 6. หาก channel ไม่ตรง OAuth grant ยังคงอยู่ใน Credential Manager ตามปกติ แต่ CLI หยุดก่อน upload และรายงานสาเหตุ
 
 ตัวหน้าใช้ HTML/CSS/JavaScript แบบ static ที่ส่งจาก server ภายในเครื่อง ไม่มี dependency frontend, CDN, analytics หรือ resource จาก third party. หน้าไม่ทำหน้าที่จัดการอัปโหลดหรือแก้ profile
@@ -49,7 +49,7 @@
 
 ## ขอบเขตความปลอดภัย
 
-- รับ HTTP เฉพาะ loopback; หลังตั้งสถานะปลายทางให้ปิด server เมื่อหน้าอ่านสถานะนั้นแล้ว หรือเมื่อครบ timeout สั้นที่กำหนดไว้ในแผน เพื่อไม่ทิ้ง server ค้าง
+- รับ HTTP เฉพาะ loopback; หลังตั้งสถานะปลายทางให้ปิด server เมื่อหน้าแสดงสถานะและส่ง acknowledgement แล้ว หรือเมื่อครบ timeout สั้นที่กำหนดไว้ในแผน เพื่อไม่ทิ้ง server ค้าง
 - ใช้ status endpoint แบบ read-only; response เป็น enum และข้อความคงที่ที่ allowlist ไว้ ไม่ส่ง raw exception, OAuth URL, response body หรือ credential
 - ใช้ route/session identifier สุ่มต่อการทำงานหนึ่งครั้ง และป้องกันไม่ให้หน้าอื่นอ่านสถานะของ session โดยเดา URL ได้
 - ใส่ security headers ที่เหมาะสมกับหน้า static (เช่น CSP แบบไม่มี external source และ `Cache-Control: no-store`)
@@ -62,7 +62,7 @@
 - Google OAuth ถูกปฏิเสธ/ล้มเหลว/หมดเวลา: สถานะเป็น `stopped`, ไม่เริ่ม upload และไม่บันทึก credential ที่ไม่สมบูรณ์
 - Windows Credential Manager ใช้ไม่ได้: แสดงข้อความทั่วไปในหน้าและ CLI; ไม่ fallback ไปเก็บ token แบบ plaintext
 - บัญชีไม่มี channel เป้าหมายหรือชื่อกำกวม: CLI หยุดก่อน upload และใช้กติกาจับคู่ชื่อ/handle/ID เดิม หาก OAuth consent สำเร็จแล้ว credential ยังคงอยู่ใน Credential Manager เพราะเป็นสิทธิ์ของบัญชี Google; CLI แจ้งว่าช่องเป้าหมายไม่ตรงโดยไม่แสดง token
-- OAuth จบหรือเกิด exception: ตั้งสถานะปลายทาง, ให้หน้าอ่านสถานะนั้นแล้วหยุด polling, จากนั้นปิด server; หาก browser ไม่อ่านสถานะให้ปิดเมื่อครบ timeout สั้นที่กำหนดไว้ในแผน. ผลช่องและ upload หลัง OAuth รายงานผ่าน CLI ตามเดิม
+- OAuth จบหรือเกิด exception: ตั้งสถานะปลายทาง, ให้หน้าอ่านและแสดงสถานะนั้นแล้วส่ง acknowledgement เพื่อหยุด polling และปิด server; หาก browser ไม่ acknowledge ให้ปิดเมื่อครบ timeout สั้นที่กำหนดไว้ในแผน. ผลช่องและ upload หลัง OAuth รายงานผ่าน CLI ตามเดิม
 
 ## เกณฑ์ยอมรับ
 

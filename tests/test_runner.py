@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from conftest import NOW
-from katy404_youtube_agent.auth import AuthorizationRevokedError, ChannelRef
+from katy404_youtube_agent.auth import AuthorizationRevokedError, ChannelRef, ChannelResolutionError
 from katy404_youtube_agent.media import build_metadata
 from katy404_youtube_agent.models import MediaFacts, ThumbnailResult, UploadChunkResult, VideoUploadResult
 from katy404_youtube_agent.scanner import scan_folder
@@ -268,6 +268,15 @@ def test_dry_run_scans_locally_without_calling_upload_api(fake_api, runner, medi
     assert report.uploaded_count == 0
     assert fake_api.begin_upload.call_count == 0
     assert fake_api.list_owned_channels.call_count == 0
+
+
+def test_unknown_requested_channel_stops_before_video_upload(runner, fake_api, media_folder):
+    with pytest.raises(ChannelResolutionError):
+        runner.upload(media_folder, "@not-my-channel", limit=1, force_private=True)
+
+    fake_api.list_owned_channels.assert_called_once_with()
+    assert fake_api.begin_upload.call_count == 0
+    assert fake_api.upload_chunk.call_count == 0
 
 
 

@@ -38,6 +38,8 @@ kt404-youtube dry-run --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chan
 kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404" --limit 1 --force-private
 ```
 
+เมื่อสั่ง `upload` หากยังไม่มี OAuth credential โปรแกรมจะเปิดหน้า **local status page** และ Google OAuth ให้เจ้าของลงชื่อเข้าใช้/ยินยอมบนหน้า Google เท่านั้น; หน้าสถานะไม่รับรหัสผ่านและไม่แสดง token หลังบันทึก credential ใน Windows Credential Manager แล้ว CLI จะตรวจว่าบัญชีนั้นเข้าถึงช่องที่ระบุก่อนเริ่มส่งวิดีโอ
+
 ตรวจผลใน YouTube Studio แล้วเจ้าของอนุมัติ video ID ก่อน:
 
 ```powershell
