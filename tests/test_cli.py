@@ -7,7 +7,7 @@ from unittest.mock import Mock
 import pytest
 
 from conftest import NOW
-from katy404_youtube_agent.auth import ChannelRef
+from katy404_youtube_agent.auth import AuthorizationRevokedError, ChannelRef
 from katy404_youtube_agent.cli import CliApp
 from katy404_youtube_agent.models import ApiVideoSnapshot, BatchReport
 from katy404_youtube_agent.profile import POLICY_VERSION
@@ -146,6 +146,18 @@ def test_revoke_authorization_revokes_token_and_removes_local_api_data(cli, cand
     assert cli.profile.approved_pilot_video_id is None
 
 
+def test_revoke_authorization_rejects_channel_mismatch_before_revoking(cli, candidate, metadata):
+    cli.store.get_or_create_job(candidate, "UC123", metadata)
+
+    result = cli.app.run(["profile", "revoke-authorization", "--channel-id", "UC999"])
+
+    assert result == 2
+    cli.credentials.revoke.assert_not_called()
+    assert cli.store.list_jobs("UC123")
+    assert cli.profile.channel_id == "UC123"
+    assert cli.profile.approved_pilot_video_id == "approved-private-video"
+
+
 def test_accept_policy_requires_explicit_phrase_before_recording(cli, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _: "ยอมรับ")
 
@@ -247,6 +259,18 @@ def test_profile_delete_account_data_explains_remote_videos_remain(cli, candidat
     assert "ไม่ได้ลบวิดีโอ" in capsys.readouterr().out
 
 
+def test_retry_failed_command_requeues_one_explicit_path_without_oauth(cli, candidate, capsys):
+    expected = SimpleNamespace(path=candidate.path)
+    cli.runner.requeue_failed = Mock(return_value=expected)
+
+    result = cli.app.run(["profile", "retry-failed", "--path", str(candidate.path)])
+
+    assert result == 0
+    cli.runner.requeue_failed.assert_called_once_with(candidate.path, "UC123")
+    assert "พร้อมลองใหม่" in capsys.readouterr().out
+    cli.credentials.load.assert_not_called()
+
+
 def test_batch_errors_return_one(cli):
     cli.runner.upload.side_effect = lambda *args, **kwargs: BatchReport([], 0, 0, 1, 0)
 
@@ -343,3 +367,41 @@ def test_maintenance_lost_channel_access_deletes_local_channel_records(cli, cand
 
     assert result == 1
     assert cli.store.list_jobs("UC123") == []
+
+
+def test_maintenance_revoked_oauth_clears_channel_data_and_profile(cli, candidate, metadata):
+    cli.store.get_or_create_job(candidate, "UC123", metadata)
+    cli.oauth.refresh.side_effect = AuthorizationRevokedError("revoked")
+    cli.credentials.load.side_effect = lambda _key: SimpleNamespace(valid=False)
+
+    result = cli.app.run(["maintenance", "refresh"])
+
+    assert result == 1
+    assert cli.store.list_jobs("UC123") == []
+    assert cli.profile.channel_id is None
+    assert cli.profile.approved_pilot_video_id is None
+
+
+def test_upload_revoked_oauth_clears_channel_data_and_profile(cli, candidate, metadata):
+    cli.store.get_or_create_job(candidate, "UC123", metadata)
+    cli.credentials.load.side_effect = lambda _key: SimpleNamespace(valid=False)
+    cli.oauth.refresh.side_effect = AuthorizationRevokedError("revoked")
+
+    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
+
+    assert result == 1
+    assert cli.store.list_jobs("UC123") == []
+    assert cli.profile.channel_id is None
+    assert cli.profile.approved_pilot_video_id is None
+
+
+def test_upload_api_refresh_revocation_clears_channel_data_and_profile(cli, candidate, metadata):
+    cli.store.get_or_create_job(candidate, "UC123", metadata)
+    cli.runner.upload.side_effect = AuthorizationRevokedError("revoked")
+
+    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
+
+    assert result == 1
+    assert cli.store.list_jobs("UC123") == []
+    assert cli.profile.channel_id is None
+    cli.credentials.delete.assert_called_once_with("owner")

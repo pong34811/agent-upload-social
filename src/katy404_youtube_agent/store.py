@@ -250,6 +250,33 @@ class JobStore:
                 failure_code=failure_code[:100],
             )
 
+    def requeue_failed(self, job_id: str, metadata: VideoMetadata) -> None:
+        """Requeue one verified failed source while preserving its hash identity."""
+        with self._connect() as connection:
+            row = self._require_job(connection, job_id)
+            if row["state"] != "failed":
+                raise JobStateError(f"Cannot requeue a job in state {row['state']}")
+            if row["video_id"]:
+                raise JobStateError("Cannot requeue a job that already has a YouTube video ID")
+            self._update(
+                connection,
+                job_id,
+                state="discovered",
+                session_uri=None,
+                offset=0,
+                metadata_json=_metadata_json(metadata),
+                thumbnail_status="pending",
+                failure_code=None,
+            )
+
+    def update_preupload_metadata(self, job_id: str, metadata: VideoMetadata) -> None:
+        """Change metadata only before YouTube has an active resumable session."""
+        with self._connect() as connection:
+            row = self._require_job(connection, job_id)
+            if row["state"] not in {"discovered", "validated"}:
+                raise JobStateError(f"Cannot change metadata for a job in state {row['state']}")
+            self._update(connection, job_id, metadata_json=_metadata_json(metadata))
+
     def mark_skipped(self, job_id: str, reason_code: str = "skipped") -> None:
         if not reason_code or not reason_code.strip():
             raise ValueError("reason_code is required")
@@ -363,7 +390,7 @@ class JobStore:
 
     def _update(self, connection: sqlite3.Connection, job_id: str, **values: object) -> None:
         allowed = {
-            "state", "session_uri", "offset", "video_id", "thumbnail_status",
+            "state", "session_uri", "offset", "video_id", "thumbnail_status", "metadata_json",
             "api_refreshed_at", "api_fields_json", "failure_code",
         }
         if not set(values) <= allowed:

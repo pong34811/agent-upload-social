@@ -10,6 +10,7 @@ from katy404_youtube_agent.auth import (
     AuthorizationRevokedError,
     CredentialStore,
     authorize_desktop,
+    execute_api_request,
     refresh_credentials,
 )
 
@@ -127,3 +128,13 @@ def test_revoke_sends_token_then_deletes_local_credential(fake_keyring, monkeypa
     )
     response.raise_for_status.assert_called_once_with()
     assert store.load("owner") is None
+
+
+def test_discovery_request_translates_invalid_grant_without_exposing_provider_message():
+    request = Mock()
+    request.execute.side_effect = RefreshError("invalid_grant: private provider details")
+
+    with pytest.raises(AuthorizationRevokedError, match="revoked or expired") as error:
+        execute_api_request(request)
+
+    assert "private provider details" not in str(error.value)

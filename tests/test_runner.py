@@ -7,13 +7,14 @@ from unittest.mock import Mock
 import pytest
 
 from conftest import NOW
-from katy404_youtube_agent.auth import ChannelRef
+from katy404_youtube_agent.auth import AuthorizationRevokedError, ChannelRef
 from katy404_youtube_agent.media import build_metadata
 from katy404_youtube_agent.models import MediaFacts, ThumbnailResult, UploadChunkResult, VideoUploadResult
 from katy404_youtube_agent.scanner import scan_folder
 from katy404_youtube_agent.runner import BatchRunner, PilotApprovalRequired
 from katy404_youtube_agent.profile import ProfileError
-from katy404_youtube_agent.youtube import QuotaExceeded, ThumbnailError
+from katy404_youtube_agent.store import JobStateError
+from katy404_youtube_agent.youtube import QuotaExceeded, RetryableUploadError, ThumbnailError
 
 
 class FakeApi:
@@ -129,6 +130,73 @@ def test_changed_media_after_dry_run_is_skipped_before_network_upload(fake_api, 
     assert fake_api.begin_upload.call_count == 0
 
 
+def test_requeue_failed_reuses_same_job_and_refreshes_metadata_from_current_profile(
+    runner, prepared_job, store
+):
+    store.mark_failed(prepared_job.id, "invalid_metadata")
+    runner.profile = dataclasses.replace(
+        runner.profile,
+        privacy_status="public",
+        api_audit_passed=True,
+        description_template="Katy404: {title}",
+    )
+
+    retried = runner.requeue_failed(prepared_job.path, "UC123")
+
+    assert retried.id == prepared_job.id
+    assert retried.state == "discovered"
+    assert retried.failure_code is None
+    assert retried.metadata.description.startswith("Katy404: ")
+    assert retried.metadata.privacy_status == "private"
+    assert retried.sha256 == prepared_job.sha256
+    assert store.get_job(prepared_job.id).state == "discovered"
+
+    runner.upload_prepared([retried])
+
+    assert runner.api.video_requests[0].privacy_status == "private"
+
+
+def test_unapproved_pilot_rewrites_persisted_nonprivate_preupload_job(fake_api, runner, prepared_job, store):
+    runner.profile = dataclasses.replace(runner.profile, privacy_status="public", api_audit_passed=True)
+    store.update_preupload_metadata(
+        prepared_job.id,
+        dataclasses.replace(prepared_job.metadata, privacy_status="public"),
+    )
+
+    report = runner.upload_prepared([store.get_job(prepared_job.id)])
+
+    assert report.uploaded_count == 1
+    assert fake_api.video_requests[0].privacy_status == "private"
+    assert store.get_job(prepared_job.id).metadata.privacy_status == "private"
+
+
+def test_unapproved_pilot_blocks_existing_nonprivate_resumable_session(fake_api, runner, prepared_job, store):
+    runner.profile = dataclasses.replace(runner.profile, privacy_status="public", api_audit_passed=True)
+    store.update_preupload_metadata(
+        prepared_job.id,
+        dataclasses.replace(prepared_job.metadata, privacy_status="public"),
+    )
+    store.set_upload_session(prepared_job.id, "https://upload.example.test/session/public", 0)
+
+    report = runner.upload_prepared([store.get_job(prepared_job.id)])
+
+    assert report.failed_count == 1
+    assert report.stopped_reason == "pilot_privacy_conflict"
+    assert report.items[0].error_code == "pilot_privacy_conflict"
+    assert fake_api.begin_upload.call_count == 0
+    assert store.get_job(prepared_job.id).session_uri == "https://upload.example.test/session/public"
+
+
+def test_requeue_failed_rejects_changed_media_without_changing_failed_state(runner, prepared_job, store):
+    store.mark_failed(prepared_job.id, "invalid_metadata")
+    prepared_job.path.write_bytes(b"changed")
+
+    with pytest.raises(JobStateError, match="changed"):
+        runner.requeue_failed(prepared_job.path, "UC123")
+
+    assert store.get_job(prepared_job.id).state == "failed"
+
+
 def test_changed_thumbnail_after_dry_run_is_not_sent(fake_api, runner, prepared_job):
     prepared_job.thumbnail_path.write_bytes(b"changed image")
 
@@ -158,6 +226,39 @@ def test_quota_error_stops_remaining_files_without_retrying_them(fake_api, runne
     assert report.stopped_reason == "quota"
     assert report.pending_count == 2
     assert fake_api.begin_upload.call_count == 1
+
+
+def test_transient_upload_failure_keeps_session_for_next_run_and_stops_batch(
+    fake_api, runner, two_prepared_jobs, store
+):
+    first, second = two_prepared_jobs
+    store.set_upload_session(first.id, "https://upload.example.test/session/retry", 0)
+    fake_api.upload_video = Mock(side_effect=RetryableUploadError("connection interrupted"))
+
+    report = runner.upload_prepared(two_prepared_jobs)
+
+    assert report.stopped_reason == "transient_upload_error"
+    assert report.failed_count == 0
+    assert report.pending_count == 2
+    assert report.items[0].status == "pending_retry"
+    assert report.items[1].status == "pending_batch"
+    saved = store.get_job(first.id)
+    assert saved.state == "uploading"
+    assert saved.session_uri == "https://upload.example.test/session/retry"
+    assert store.get_job(second.id).state == "validated"
+    assert fake_api.upload_video.call_count == 1
+
+
+def test_revoked_authorization_propagates_without_marking_upload_failed(fake_api, runner, prepared_job, store):
+    store.set_upload_session(prepared_job.id, "https://upload.example.test/session/retry", 0)
+    fake_api.upload_video = Mock(side_effect=AuthorizationRevokedError("revoked"))
+
+    with pytest.raises(AuthorizationRevokedError):
+        runner.upload_prepared([prepared_job])
+
+    saved = store.get_job(prepared_job.id)
+    assert saved.state == "uploading"
+    assert saved.session_uri == "https://upload.example.test/session/retry"
 
 
 def test_dry_run_scans_locally_without_calling_upload_api(fake_api, runner, media_folder):

@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
 
-from .auth import ChannelResolutionError, resolve_channel
+from .auth import AuthorizationRevokedError, ChannelResolutionError, resolve_channel
 from .media import MediaProbeError, MetadataError, build_metadata, probe_media
 from .models import (
     BatchReport,
@@ -28,6 +29,7 @@ from .store import JobStateError, JobStore
 from .youtube import (
     QuotaExceeded,
     ResumableUploader,
+    RetryableUploadError,
     ThumbnailError,
     UploadError,
 )
@@ -81,6 +83,43 @@ class BatchRunner:
             else:
                 items.append(UploadItemResult(status="ready", source_path=candidate.path))
         return self._report(items)
+
+    def requeue_failed(self, path: Path, channel_id: str) -> UploadJob:
+        """Requeue one explicitly named failed file after verifying both paired assets."""
+        if not channel_id or not channel_id.strip():
+            raise JobStateError("A verified channel ID is required to requeue a failed upload")
+        if self.profile.channel_id != channel_id:
+            raise JobStateError("Requested channel does not match the channel saved in this profile")
+        target = os.path.normcase(os.path.abspath(Path(path)))
+        matching = [
+            job for job in self.store.list_jobs(channel_id)
+            if os.path.normcase(os.path.abspath(job.path)) == target
+        ]
+        if len(matching) != 1:
+            raise JobStateError("No unique saved upload job matches the requested file path")
+        job = matching[0]
+        if job.state != "failed":
+            raise JobStateError(f"Only failed uploads can be requeued; current state is {job.state}")
+        changed = self._changed_file_status(job)
+        if changed is not None:
+            raise JobStateError(f"Cannot retry because the source or paired thumbnail changed ({changed})")
+        effective_privacy = (
+            "private" if not self.profile.approved_pilot_video_id else self.profile.privacy_status
+        )
+        validate_upload_profile(self.profile, requested_privacy=effective_privacy)
+        candidate = MediaCandidate(
+            path=job.path,
+            thumbnail_path=job.thumbnail_path,
+            sha256=job.sha256,
+            thumbnail_sha256=job.thumbnail_sha256,
+            size_bytes=job.size_bytes,
+            thumbnail_size_bytes=job.thumbnail_path.stat().st_size,
+            modified_ns=job.modified_ns,
+        )
+        metadata_profile = replace(self.profile, privacy_status=effective_privacy)
+        metadata = build_metadata(candidate, self.probe(job.path), metadata_profile)
+        self.store.requeue_failed(job.id, metadata)
+        return self.store.get_job(job.id)
 
     def upload(
         self,
@@ -162,6 +201,40 @@ class BatchRunner:
                 )
                 continue
 
+            if not self.profile.approved_pilot_video_id:
+                actual_visibility = job.api_fields.get("privacy_status")
+                wrong_visibility = job.metadata.privacy_status != "private" or (
+                    job.state in {"uploaded", "complete"}
+                    and actual_visibility not in {None, "private"}
+                )
+                if wrong_visibility and job.state in {"discovered", "validated"}:
+                    try:
+                        validate_upload_profile(self.profile, requested_privacy="private")
+                    except ProfileError as exc:
+                        items.append(
+                            UploadItemResult(status="failed", source_path=job.path, error_code=self._error_code(exc))
+                        )
+                        continue
+                    self.store.update_preupload_metadata(
+                        job.id, replace(job.metadata, privacy_status="private")
+                    )
+                    job = self.store.get_job(job.id)
+                    wrong_visibility = False
+                if wrong_visibility and job.state not in {"failed", "skipped"}:
+                    items.append(
+                        UploadItemResult(
+                            status="failed",
+                            source_path=job.path,
+                            video_id=job.video_id,
+                            video_url=self._video_url(job.video_id),
+                            error_code="pilot_privacy_conflict",
+                        )
+                    )
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "pilot_privacy_conflict"
+                    break
+
             if job.state == "complete":
                 items.append(self._uploaded_item(job, status="skipped_already_uploaded"))
                 continue
@@ -200,6 +273,8 @@ class BatchRunner:
                 result = self._upload_video(job)
                 self.store.mark_video_uploaded(job.id, result.video_id, result.confirmed_at)
                 uploaded_job = self.store.get_job(job.id)
+            except AuthorizationRevokedError:
+                raise
             except QuotaExceeded:
                 stopped_reason = "quota"
                 current = self.store.get_job(job.id)
@@ -238,6 +313,18 @@ class BatchRunner:
                 if current.state == "complete" and current.video_id:
                     items.append(self._uploaded_item(current, status="uploaded", thumbnail_status="success"))
                     continue
+                if isinstance(exc, RetryableUploadError) and current.state in {"validated", "uploading"}:
+                    items.append(
+                        UploadItemResult(
+                            status="pending_retry",
+                            source_path=job.path,
+                            error_code="retryable_upload_error",
+                        )
+                    )
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "transient_upload_error"
+                    break
                 if current.state not in {"failed", "skipped"}:
                     self.store.mark_failed(job.id, self._error_code(exc))
                 items.append(
@@ -325,6 +412,8 @@ class BatchRunner:
                     ),
                     False,
                 )
+        except AuthorizationRevokedError:
+            raise
         except QuotaExceeded:
             self.store.mark_thumbnail_result(job.id, success=False)
             return (

@@ -104,6 +104,24 @@ def test_transient_chunk_failure_queries_confirmed_offset_before_retry(
     assert [call.kwargs["start"] for call in fake_api.upload_chunk.call_args_list] == [0, 0]
 
 
+def test_repeated_transient_chunk_failures_are_bounded_and_keep_session_resumable(
+    fake_api, store, upload_job, media_file
+):
+    sleep = Mock()
+    fake_api.upload_chunk.side_effect = RetryableUploadError("connection interrupted")
+    fake_api.query_session.return_value = 0
+
+    with pytest.raises(RetryableUploadError):
+        ResumableUploader(fake_api, store, sleep=sleep, max_retries=2).upload(upload_job, media_file)
+
+    assert fake_api.upload_chunk.call_count == 3
+    assert fake_api.query_session.call_count == 3
+    assert sleep.call_count == 2
+    saved = store.get_job(upload_job.id)
+    assert saved.state == "uploading"
+    assert saved.session_uri == "https://upload.example.test/session/one"
+
+
 def test_completed_resumable_session_is_not_uploaded_again(fake_api, store, upload_job, media_file, upload_result):
     store.set_upload_session(upload_job.id, "https://upload.example.test/session/one", 0)
     fake_api.query_session.return_value = upload_result

@@ -165,6 +165,18 @@ def refresh_credentials(
     return credentials
 
 
+def execute_api_request(request: Any) -> Any:
+    """Translate a revoked grant during discovery-client refresh into a safe auth error."""
+    try:
+        return request.execute()
+    except RefreshError as exc:
+        if "invalid_grant" in str(exc).casefold():
+            raise AuthorizationRevokedError(
+                "Google authorization was revoked or expired; authorize the owner account again"
+            ) from exc
+        raise
+
+
 def _canonical_handle(value: str) -> str:
     value = value.strip()
     return (value if value.startswith("@") else f"@{value}").casefold()
@@ -203,7 +215,7 @@ class YouTubeApi:
             params: dict[str, Any] = {"part": "id,snippet", "mine": True, "maxResults": 50}
             if page_token:
                 params["pageToken"] = page_token
-            response = self.client.channels().list(**params).execute()
+            response = execute_api_request(self.client.channels().list(**params))
             for item in response.get("items", []):
                 snippet = item.get("snippet") or {}
                 channel_id = item.get("id")

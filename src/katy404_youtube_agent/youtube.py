@@ -11,12 +11,16 @@ from typing import Any, Callable, Protocol
 from urllib.parse import urlencode, urlparse
 
 import requests
-from google.auth.exceptions import TransportError
+from google.auth.exceptions import RefreshError, TransportError
 from google.auth.transport.requests import AuthorizedSession
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
-from .auth import YouTubeApi as ChannelApi
+from .auth import (
+    AuthorizationRevokedError,
+    YouTubeApi as ChannelApi,
+    execute_api_request,
+)
 from .models import (
     ApiVideoSnapshot,
     UploadChunkResult,
@@ -173,6 +177,12 @@ class ResumableTransport:
     def _request(self, method: str, url: str, **kwargs: Any) -> Any:
         try:
             return self.session.request(method, url, timeout=(30, 300), **kwargs)
+        except RefreshError as exc:
+            if "invalid_grant" in str(exc).casefold():
+                raise AuthorizationRevokedError(
+                    "Google authorization was revoked or expired; authorize the owner account again"
+                ) from exc
+            raise
         except (requests.RequestException, TransportError, TimeoutError, OSError) as exc:
             raise RetryableUploadError("YouTube upload transport was interrupted") from exc
 
@@ -327,6 +337,7 @@ class ResumableUploader:
 
         restarts = 0
         no_progress = 0
+        retries_at_offset = 0
         while offset < total_bytes:
             with media_path.open("rb") as stream:
                 stream.seek(offset)
@@ -347,7 +358,7 @@ class ResumableUploader:
                 session_uri = self._start_session(job, media_path)
                 offset = 0
                 continue
-            except RetryableUploadError:
+            except RetryableUploadError as exc:
                 try:
                     confirmed = self._query(session_uri, total_bytes)
                 except UploadSessionExpired:
@@ -359,6 +370,14 @@ class ResumableUploader:
                     continue
                 if isinstance(confirmed, VideoUploadResult):
                     return self._finish(job.id, confirmed)
+                if confirmed == offset:
+                    if retries_at_offset >= self.max_retries:
+                        raise
+                    wait = exc.retry_after or min(0.5 * (2**retries_at_offset), _MAX_BACKOFF_SECONDS)
+                    self.sleep(min(wait, _MAX_BACKOFF_SECONDS))
+                    retries_at_offset += 1
+                else:
+                    retries_at_offset = 0
                 offset = confirmed
                 self.store.set_upload_session(job.id, session_uri, offset)
                 continue
@@ -373,9 +392,12 @@ class ResumableUploader:
                 confirmed = self._query(session_uri, total_bytes)
                 if isinstance(confirmed, VideoUploadResult):
                     return self._finish(job.id, confirmed)
+                if confirmed != offset:
+                    retries_at_offset = 0
                 offset = confirmed
             else:
                 no_progress = 0
+                retries_at_offset = 0
                 offset = outcome.next_offset
             self.store.set_upload_session(job.id, session_uri, offset)
 
@@ -416,7 +438,7 @@ class YouTubeApi(ChannelApi):
         mime_type = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
         media = MediaFileUpload(str(thumbnail_path), mimetype=mime_type, chunksize=-1, resumable=False)
         try:
-            self.client.thumbnails().set(videoId=video_id, media_body=media).execute()
+            execute_api_request(self.client.thumbnails().set(videoId=video_id, media_body=media))
         except HttpError as exc:
             reason = _http_error_reason(exc)
             if reason in _QUOTA_REASONS:
@@ -437,9 +459,9 @@ class YouTubeApi(ChannelApi):
             batch = video_ids[start : start + 50]
             if not batch:
                 continue
-            response = self.client.videos().list(
-                part="id,snippet,status", id=",".join(batch), maxResults=50
-            ).execute()
+            response = execute_api_request(
+                self.client.videos().list(part="id,snippet,status", id=",".join(batch), maxResults=50)
+            )
             for item in response.get("items", []):
                 snippet = item.get("snippet") or {}
                 status = item.get("status") or {}

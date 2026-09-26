@@ -23,7 +23,7 @@ from .auth import (
 from .models import BatchReport, UploadProfile
 from .profile import POLICY_VERSION, ProfileError, ProfileStore, validate_upload_profile
 from .runner import BatchRunner, PilotApprovalRequired
-from .store import JobStore
+from .store import JobStateError, JobStore
 from .youtube import YouTubeApi
 
 
@@ -70,6 +70,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pilot.add_argument("--video-id", required=True)
     delete_data = profile_commands.add_parser("delete-account-data", help="ลบข้อมูล API ของช่องในเครื่อง")
     delete_data.add_argument("--channel-id")
+    retry_failed = profile_commands.add_parser("retry-failed", help="เตรียมงานที่ล้มเหลวหนึ่งไฟล์ให้ลองใหม่")
+    retry_failed.add_argument("--path", required=True, type=Path)
     revoke = profile_commands.add_parser("revoke-authorization", help="ยกเลิกสิทธิ์ OAuth และลบข้อมูลช่อง")
     revoke.add_argument("--channel-id")
 
@@ -195,6 +197,8 @@ class CliApp:
             print("ลบ channel ID และสถานะอนุมัติ pilot ที่เก็บไว้ในโปรไฟล์ของช่องนี้แล้ว")
             print("การทำงานนี้ไม่ได้ลบวิดีโอออกจาก YouTube")
             return 0
+        if action == "retry-failed":
+            return self._retry_failed(profile, args.path)
         if action == "revoke-authorization":
             channel_id = args.channel_id or profile.channel_id
             if not channel_id:
@@ -266,11 +270,16 @@ class CliApp:
         # Consent and configuration are checked before loading OAuth credentials or opening a browser.
         validate_upload_profile(profile, requested_privacy=requested_privacy)
         credential_store = self._get_credential_store()
-        credentials = credential_store.load(OWNER_ACCOUNT_KEY)
-        if credentials is None:
-            credentials = self.oauth.authorize(profile.client_secrets_path, credential_store)
-        elif not getattr(credentials, "valid", True):
-            credentials = self.oauth.refresh(OWNER_ACCOUNT_KEY, credential_store, credentials)
+        try:
+            credentials = credential_store.load(OWNER_ACCOUNT_KEY)
+            if credentials is None:
+                credentials = self.oauth.authorize(profile.client_secrets_path, credential_store)
+            elif not getattr(credentials, "valid", True):
+                credentials = self.oauth.refresh(OWNER_ACCOUNT_KEY, credential_store, credentials)
+        except AuthorizationRevokedError as exc:
+            self._handle_revoked_authorization(profile)
+            print(f"OAuth ถูกยกเลิกหรือหมดอายุ; ลบข้อมูล API ในเครื่องและหยุด upload: {self._safe_error(exc)}", file=sys.stderr)
+            return 1
         api = self.oauth.build_api(credentials, self.store)
         self.runner.api = api
         self.runner.profile = profile
@@ -330,12 +339,20 @@ class CliApp:
                 except (ProfileError, PilotApprovalRequired, ValueError) as retry_exc:
                     print(f"ยกเลิกก่อนเริ่มอัปโหลด: {self._safe_error(retry_exc)}", file=sys.stderr)
                     return 2
+                except AuthorizationRevokedError as retry_exc:
+                    self._handle_revoked_authorization(profile)
+                    print(f"OAuth ถูกยกเลิกหรือหมดอายุ; ลบข้อมูล API ในเครื่องและหยุด upload: {self._safe_error(retry_exc)}", file=sys.stderr)
+                    return 1
                 except Exception as retry_exc:
                     print(f"อัปโหลดไม่สำเร็จ ({type(retry_exc).__name__})", file=sys.stderr)
                     return 1
             elif isinstance(exc, (ProfileError, PilotApprovalRequired, ValueError)):
                 print(f"ยกเลิกก่อนเริ่มอัปโหลด: {self._safe_error(exc)}", file=sys.stderr)
                 return 2
+            elif isinstance(exc, AuthorizationRevokedError):
+                self._handle_revoked_authorization(profile)
+                print(f"OAuth ถูกยกเลิกหรือหมดอายุ; ลบข้อมูล API ในเครื่องและหยุด upload: {self._safe_error(exc)}", file=sys.stderr)
+                return 1
             else:
                 print(f"อัปโหลดไม่สำเร็จ ({type(exc).__name__})", file=sys.stderr)
                 return 1
@@ -367,6 +384,12 @@ class CliApp:
         return 0
 
     def _revoke(self, profile: UploadProfile, channel_id: str) -> int:
+        if profile.channel_id and profile.channel_id != channel_id:
+            print(
+                f"Channel ID ไม่ตรงกับโปรไฟล์ ({profile.channel_id}); ยกเลิกก่อนแตะ OAuth หรือข้อมูลในเครื่อง",
+                file=sys.stderr,
+            )
+            return 2
         try:
             self._get_credential_store().revoke(OWNER_ACCOUNT_KEY)
         except CredentialRevocationError:
@@ -439,7 +462,7 @@ class CliApp:
             )
             return 0
         except AuthorizationRevokedError as exc:
-            self.store.delete_account_data(profile.channel_id)
+            self._handle_revoked_authorization(profile)
             print(f"OAuth ถูกยกเลิกหรือหมดอายุ; ลบข้อมูล API และหยุด maintenance: {self._safe_error(exc)}", file=sys.stderr)
             return 1
         except Exception as exc:
@@ -465,6 +488,34 @@ class CliApp:
         if profile.channel_id == channel_id:
             self._save_profile(replace(profile, channel_id=None, approved_pilot_video_id=None))
         return removed
+
+    def _handle_revoked_authorization(self, profile: UploadProfile) -> None:
+        try:
+            self._get_credential_store().delete(OWNER_ACCOUNT_KEY)
+        except CredentialStoreError as exc:
+            print(f"ลบ OAuth token ในเครื่องไม่สำเร็จ: {self._safe_error(exc)}", file=sys.stderr)
+
+        saved_profile = self._load_profile() or profile
+        runner_channel = getattr(getattr(self, "runner", None), "profile", None)
+        runner_channel_id = getattr(runner_channel, "channel_id", None)
+        channel_id = saved_profile.channel_id or profile.channel_id or runner_channel_id
+        if channel_id:
+            if saved_profile.channel_id != channel_id:
+                saved_profile = replace(saved_profile, channel_id=channel_id)
+            self._delete_account_data(saved_profile, channel_id)
+
+    def _retry_failed(self, profile: UploadProfile, path: Path) -> int:
+        if not profile.channel_id:
+            print("โปรไฟล์ยังไม่มี channel ID ที่ยืนยันแล้ว", file=sys.stderr)
+            return 2
+        try:
+            job = self.runner.requeue_failed(path, profile.channel_id)
+        except (JobStateError, ProfileError, ValueError, OSError) as exc:
+            print(f"เตรียมลองใหม่ไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
+            return 2
+        print(f"ไฟล์ {job.path.name} พร้อมลองใหม่ โดยคงตัวตน hash/channel เดิมไว้")
+        print("รันคำสั่ง upload สำหรับโฟลเดอร์เดิมเพื่อส่งต่อจากงานที่เตรียมไว้นี้")
+        return 0
 
     def _get_credential_store(self) -> CredentialStore:
         if self.credential_store is None:
@@ -503,13 +554,13 @@ class CliApp:
             if item.status.startswith("uploaded") and item.video_url:
                 error = f"; error={item.error_code}" if item.error_code else ""
                 print(f"{item.status} ({item.actual_visibility or 'unknown'}): {item.video_url}{error}")
-            elif item.status in {"failed", "pending_quota"}:
+            elif item.status == "failed" or item.status.startswith("pending"):
                 print(f"{item.status}: {item.source_path.name} ({item.error_code or 'ไม่มีรหัสข้อผิดพลาด'})")
 
     @staticmethod
     def _safe_error(exc: Exception) -> str:
         # Whitelist local validation messages; do not leak API response bodies or OAuth URLs.
-        if isinstance(exc, (ProfileError, CredentialStoreError, AuthorizationRequiredError, ValueError, OSError)):
+        if isinstance(exc, (JobStateError, ProfileError, CredentialStoreError, AuthorizationRequiredError, ValueError, OSError)):
             return str(exc)
         return type(exc).__name__
 

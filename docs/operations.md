@@ -49,6 +49,15 @@ kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chann
 
 แต่ละงานมี checkpoint resumable และกันซ้ำด้วย hash ของไฟล์กับ channel ID ถ้า thumbnail ล้มเหลว งานวิดีโอยังอยู่ในสถานะ retry thumbnail โดยไม่ส่งวิดีโอซ้ำ หาก quota หมด คิวที่เหลือจะหยุด
 
+ถ้า network/API ขัดข้องชั่วคราวจน retry ในรอบนั้นหมด ระบบจะหยุดคิวและเก็บ resumable session ไว้ ให้รันคำสั่ง `upload` เดิมอีกครั้งเพื่อทำต่อ หาก job ถูกบันทึกเป็น `failed` หลังข้อผิดพลาดถาวรและแก้สาเหตุแล้ว ให้เลือกไฟล์นั้นโดยตรงเพื่อเตรียม retry:
+
+```powershell
+kt404-youtube profile retry-failed --path "G:\My Drive\Projects\Katy404\2026-09\vdo\ชื่อไฟล์.mov"
+kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404"
+```
+
+คำสั่ง retry ตรวจ channel ในโปรไฟล์และ hash ของวิดีโอ/JPG ต้องยังตรงกับงานเดิม จากนั้นคำนวณ metadata ใหม่จากโปรไฟล์ปัจจุบัน และคง hash/channel key เดิมไว้เพื่อป้องกันการส่งซ้ำ หากยังไม่ได้อนุมัติ pilot ระบบจะตั้ง retry เป็น Private เสมอ และจะหยุดเมื่อพบ job/session เดิมที่มี visibility อื่น หากไฟล์เปลี่ยน ให้แก้ปัญหาในต้นฉบับเดิมก่อนหรือจัดการข้อมูลเดิมโดยเจ้าของ; คำสั่งนี้จะไม่เปลี่ยนงานที่ไม่ใช่ `failed`
+
 ## เปลี่ยนค่าที่เจ้าของยืนยัน
 
 ```powershell
