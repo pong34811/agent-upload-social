@@ -34,8 +34,8 @@
 2. เปิดหน้า status ใน browser หนึ่งแท็บ โดยหน้าเริ่มในสถานะรอ consent และอ่านสถานะจาก endpoint แบบ read-only ของ origin เดียวกัน
 3. เรียก OAuth Desktop flow เดิม ซึ่งเปิด Google sign-in/consent ใน browser; ผู้ใช้กรอกรหัสผ่านหรือยืนยันตัวตนบนโดเมน Google เท่านั้น
 4. อัปเดตสถานะเป็น connected เมื่อ credential ถูกบันทึกสำเร็จ จากนั้นสร้าง API client และให้ runner ตรวจ channel ตามที่สั่ง
-5. เมื่อ channel ตรงกัน แสดงว่าเชื่อมต่อและยืนยัน channel แล้ว จากนั้นหยุด polling และดำเนิน upload ตามคำสั่งเดิม; เมื่อ flow ล้มเหลวหรือ channel ไม่ตรง แสดงข้อความปลอดภัยและจบคำสั่งโดยไม่ upload
-6. ปิด local server เสมอเมื่อ auth/channel verification จบหรือเกิด exception
+5. เมื่อ credential ถูกบันทึกแล้ว แสดง connected; เมื่อ OAuth ล้มเหลวหรือถูกปฏิเสธ แสดง stopped. หลังหน้าอ่านสถานะปลายทางแล้วให้หยุด polling และปิด local server; หากไม่มีการอ่านสถานะปลายทางให้ปิด server เมื่อครบ timeout สั้นที่กำหนดไว้ในแผน
+6. หาก channel ไม่ตรง OAuth grant ยังคงอยู่ใน Credential Manager ตามปกติ แต่ CLI หยุดก่อน upload และรายงานสาเหตุ
 
 ตัวหน้าใช้ HTML/CSS/JavaScript แบบ static ที่ส่งจาก server ภายในเครื่อง ไม่มี dependency frontend, CDN, analytics หรือ resource จาก third party. หน้าไม่ทำหน้าที่จัดการอัปโหลดหรือแก้ profile
 
@@ -43,15 +43,13 @@
 
 - `waiting`: รอผู้ใช้ทำขั้นตอน OAuth บน Google
 - `connected`: OAuth สำเร็จและ credential ถูกบันทึกแล้ว
-- `verifying_channel`: โปรแกรมตรวจว่าบัญชีเข้าถึง channel ที่ผู้ใช้ระบุ
-- `channel_verified`: ยืนยัน channel แล้ว; upload จะเดินหน้าต่อในโปรเซสเดิม สถานะนี้ไม่ได้แปลว่า upload เสร็จแล้ว
-- `stopped`: ยกเลิก consent, ตรวจ channel ไม่ผ่าน, หรือเกิดข้อผิดพลาดที่หยุดงาน
+- `stopped`: Google consent ถูกยกเลิก/ปฏิเสธ, OAuth ล้มเหลว/หมดเวลา, หรือเก็บ credential ไม่สำเร็จ
 
-หน้าไม่แสดง email/token/ข้อมูล API ดิบ เว้นแต่ข้อมูลชื่อช่องที่ผู้ใช้ระบุและจำเป็นต่อการยืนยันสถานะ
+หน้าแสดงข้อความ `connected` ในความหมายว่า OAuth สำเร็จและบันทึก credential แล้วเท่านั้น ไม่ได้ยืนยันว่า channel เป้าหมายตรงหรือว่า upload เสร็จ; CLI เป็นผู้รายงานผลตรวจ channel และ upload. หน้าไม่แสดง email/token/ข้อมูล API ดิบ
 
 ## ขอบเขตความปลอดภัย
 
-- รับ HTTP เฉพาะ loopback; ปิด server โดยเร็วเมื่อจบ flow
+- รับ HTTP เฉพาะ loopback; หลังตั้งสถานะปลายทางให้ปิด server เมื่อหน้าอ่านสถานะนั้นแล้ว หรือเมื่อครบ timeout สั้นที่กำหนดไว้ในแผน เพื่อไม่ทิ้ง server ค้าง
 - ใช้ status endpoint แบบ read-only; response เป็น enum และข้อความคงที่ที่ allowlist ไว้ ไม่ส่ง raw exception, OAuth URL, response body หรือ credential
 - ใช้ route/session identifier สุ่มต่อการทำงานหนึ่งครั้ง และป้องกันไม่ให้หน้าอื่นอ่านสถานะของ session โดยเดา URL ได้
 - ใส่ security headers ที่เหมาะสมกับหน้า static (เช่น CSP แบบไม่มี external source และ `Cache-Control: no-store`)
@@ -63,16 +61,16 @@
 - config หรือ policy ยังไม่พร้อม: แสดงข้อความใน CLI ตามเดิมและไม่เปิด local page หรือ Google OAuth
 - Google OAuth ถูกปฏิเสธ/ล้มเหลว/หมดเวลา: สถานะเป็น `stopped`, ไม่เริ่ม upload และไม่บันทึก credential ที่ไม่สมบูรณ์
 - Windows Credential Manager ใช้ไม่ได้: แสดงข้อความทั่วไปในหน้าและ CLI; ไม่ fallback ไปเก็บ token แบบ plaintext
-- บัญชีไม่มี channel เป้าหมายหรือชื่อกำกวม: หยุดก่อน upload; ใช้กติกาจับคู่ชื่อ/handle/ID เดิม หาก OAuth consent สำเร็จแล้ว credential ยังคงอยู่ใน Credential Manager เพราะเป็นสิทธิ์ของบัญชี Google; หน้าและ CLI ต้องแจ้งว่าช่องเป้าหมายไม่ตรงโดยไม่แสดง token
-- อัปโหลดถูกยกเลิกหรือโปรเซสจบ: ปิด server และหยุด polling จากหน้า
+- บัญชีไม่มี channel เป้าหมายหรือชื่อกำกวม: CLI หยุดก่อน upload และใช้กติกาจับคู่ชื่อ/handle/ID เดิม หาก OAuth consent สำเร็จแล้ว credential ยังคงอยู่ใน Credential Manager เพราะเป็นสิทธิ์ของบัญชี Google; CLI แจ้งว่าช่องเป้าหมายไม่ตรงโดยไม่แสดง token
+- OAuth จบหรือเกิด exception: ตั้งสถานะปลายทาง, ให้หน้าอ่านสถานะนั้นแล้วหยุด polling, จากนั้นปิด server; หาก browser ไม่อ่านสถานะให้ปิดเมื่อครบ timeout สั้นที่กำหนดไว้ในแผน. ผลช่องและ upload หลัง OAuth รายงานผ่าน CLI ตามเดิม
 
 ## เกณฑ์ยอมรับ
 
 1. เมื่อมี credential ที่ยังใช้ได้ flow อัปโหลดไม่เปิดหน้า local เพิ่ม
 2. เมื่อไม่มี credential และ profile ผ่าน validation หน้า local แสดงสถานะรอ และ Google OAuth Desktop flow เปิดขึ้น
-3. เมื่อผู้ใช้อนุมัติและบันทึก credential ได้ หน้า local แสดง connected โดยไม่แสดง token; flow เดิมตรวจ channel ก่อน upload และหน้าแสดง `channel_verified` เมื่อยืนยันสำเร็จ
+3. เมื่อผู้ใช้อนุมัติและบันทึก credential ได้ หน้า local แสดง connected โดยไม่แสดง token; CLI flow เดิมตรวจ channel ก่อน upload
 4. เมื่อผู้ใช้ปฏิเสธ/ยกเลิก, client ผิด project, credential backend ล้มเหลว หรือ channel ไม่ตรง จะไม่มีการเรียก upload endpoint
-5. หลังคำสั่งจบ ไม่เหลือ local HTTP server เปิดค้าง และไม่มี token ในไฟล์/log/HTML/URL
+5. หลังสถานะ OAuth ปลายทางถูกแสดงหรือ timeout สั้นหมด ไม่เหลือ local HTTP server เปิดค้าง และไม่มี token ในไฟล์/log/HTML/URL
 6. dry-run ยังคง offline ไม่เปิด OAuth หรือ local login page
 7. Pilot/batch behavior และข้อกำหนดว่าต้องสั่ง upload อย่างชัดเจนยังคงเดิม
 
