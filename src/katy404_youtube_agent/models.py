@@ -24,3 +24,41 @@ class UploadProfile:
     policy_accepted_at: str | None = None
     policy_version_accepted: str | None = None
     approved_pilot_video_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MediaCandidate:
+    path: Path
+    thumbnail_path: Path
+    sha256: str
+    thumbnail_sha256: str
+    size_bytes: int
+    thumbnail_size_bytes: int
+    modified_ns: int
+
+
+@dataclass(frozen=True, slots=True)
+class ScanIssue:
+    path: Path
+    code: str
+    message: str
+
+
+@dataclass(frozen=True, slots=True)
+class MediaFacts:
+    duration_seconds: float
+    width: int
+    height: int
+    video_codec: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class VideoMetadata:
+    title: str
+    description: str
+    tags: tuple[str, ...]
+    category_id: str
+    privacy_status: str
+    made_for_kids: bool
+    contains_synthetic_media: bool
+    short_candidate: bool

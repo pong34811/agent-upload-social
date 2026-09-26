@@ -1,6 +1,6 @@
 import pytest
 
-from katy404_youtube_agent.models import UploadProfile
+from katy404_youtube_agent.models import MediaCandidate, UploadProfile, VideoMetadata
 
 
 NOW = "2026-09-26T00:00:00Z"
@@ -29,4 +29,35 @@ def valid_profile(tmp_path):
         policy_accepted_at=NOW,
         policy_version_accepted="2026-09-26",
         approved_pilot_video_id=None,
+    )
+
+
+@pytest.fixture
+def candidate(tmp_path):
+    video = tmp_path / "vdo_เกมไทย_9x16.mov"
+    thumbnail = tmp_path / "vdo_เกมไทย_9x16.jpg"
+    video.write_bytes(b"video")
+    thumbnail.write_bytes(b"image")
+    return MediaCandidate(
+        path=video,
+        thumbnail_path=thumbnail,
+        sha256="a" * 64,
+        thumbnail_sha256="b" * 64,
+        size_bytes=5,
+        thumbnail_size_bytes=5,
+        modified_ns=1_000_000,
+    )
+
+
+@pytest.fixture
+def metadata():
+    return VideoMetadata(
+        title="เกมไทย #Shorts",
+        description="เกมไทย #Shorts",
+        tags=(),
+        category_id="20",
+        privacy_status="private",
+        made_for_kids=False,
+        contains_synthetic_media=False,
+        short_candidate=True,
     )
