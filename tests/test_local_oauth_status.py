@@ -127,9 +127,7 @@ def test_unknown_host_and_nonce_routes_cannot_read_status():
         assert wrong_host.status == 404
         wrong_host.read()
 
-        wrong_nonce_url = urllib.parse.urlunparse(
-            parsed._replace(path=f"/wrong-session{parsed.path.rsplit('/', 1)[-1]}")
-        )
+        wrong_nonce_url = urllib.parse.urlunparse(parsed._replace(path="/wrong-session/status"))
         with pytest.raises(urllib.error.HTTPError) as wrong_nonce:
             urllib.request.urlopen(wrong_nonce_url, timeout=2)
         assert wrong_nonce.value.code == 404
