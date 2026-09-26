@@ -190,8 +190,9 @@ class CliApp:
             if not channel_id:
                 print("ระบุ --channel-id หรือกำหนด channel ID ในโปรไฟล์ก่อน", file=sys.stderr)
                 return 2
-            removed = self.store.delete_account_data(channel_id)
+            removed = self._delete_account_data(profile, channel_id)
             print(f"ลบระเบียนในเครื่อง {removed} รายการสำหรับช่อง {channel_id} แล้ว")
+            print("ลบ channel ID และสถานะอนุมัติ pilot ที่เก็บไว้ในโปรไฟล์ของช่องนี้แล้ว")
             print("การทำงานนี้ไม่ได้ลบวิดีโอออกจาก YouTube")
             return 0
         if action == "revoke-authorization":
@@ -369,15 +370,15 @@ class CliApp:
         try:
             self._get_credential_store().revoke(OWNER_ACCOUNT_KEY)
         except CredentialRevocationError:
-            self.store.delete_account_data(channel_id)
+            self._delete_account_data(profile, channel_id)
             print("ลบ token ในเครื่องและข้อมูล API ของช่องแล้ว แต่ยืนยันการยกเลิกกับ Google ไม่สำเร็จ", file=sys.stderr)
             print(f"กรุณาตรวจและยกเลิกสิทธิ์ที่ {GOOGLE_SECURITY_URL}", file=sys.stderr)
             return 1
         except CredentialStoreError as exc:
-            self.store.delete_account_data(channel_id)
+            self._delete_account_data(profile, channel_id)
             print(f"จัดการ token ในเครื่องไม่สำเร็จ: {self._safe_error(exc)}", file=sys.stderr)
             return 1
-        self.store.delete_account_data(channel_id)
+        self._delete_account_data(profile, channel_id)
         print(f"ยกเลิก OAuth และลบข้อมูล API ในเครื่องของช่อง {channel_id} แล้ว")
         print("การยกเลิก OAuth ไม่ได้ลบวิดีโอออกจาก YouTube")
         return 0
@@ -402,8 +403,7 @@ class CliApp:
             self.runner.api = api
             owned = api.list_owned_channels()
             if not any(item.channel_id == profile.channel_id for item in owned):
-                self.store.delete_account_data(profile.channel_id)
-                self._save_profile(replace(profile, channel_id=None, approved_pilot_video_id=None))
+                self._delete_account_data(profile, profile.channel_id)
                 print("บัญชีนี้ไม่มีสิทธิ์จัดการช่องที่บันทึกไว้แล้ว; ลบข้อมูล API ในเครื่องและหยุด maintenance", file=sys.stderr)
                 return 1
 
@@ -453,6 +453,12 @@ class CliApp:
     def _save_profile(self, profile: UploadProfile) -> None:
         self.profile_store.save(profile)
         self.runner.profile = profile
+
+    def _delete_account_data(self, profile: UploadProfile, channel_id: str) -> int:
+        removed = self.store.delete_account_data(channel_id)
+        if profile.channel_id == channel_id:
+            self._save_profile(replace(profile, channel_id=None, approved_pilot_video_id=None))
+        return removed
 
     def _get_credential_store(self) -> CredentialStore:
         if self.credential_store is None:

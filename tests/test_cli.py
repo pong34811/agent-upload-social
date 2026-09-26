@@ -142,6 +142,8 @@ def test_revoke_authorization_revokes_token_and_removes_local_api_data(cli, cand
     assert cli.store.list_jobs("UC123") == []
     cli.credentials.revoke.assert_called_once_with("owner")
     assert cli.credentials.load("UC123") is None
+    assert cli.profile.channel_id is None
+    assert cli.profile.approved_pilot_video_id is None
 
 
 def test_accept_policy_requires_explicit_phrase_before_recording(cli, monkeypatch):
@@ -240,6 +242,8 @@ def test_profile_delete_account_data_explains_remote_videos_remain(cli, candidat
 
     assert result == 0
     assert cli.store.list_jobs("UC123") == []
+    assert cli.profile.channel_id is None
+    assert cli.profile.approved_pilot_video_id is None
     assert "ไม่ได้ลบวิดีโอ" in capsys.readouterr().out
 
 
