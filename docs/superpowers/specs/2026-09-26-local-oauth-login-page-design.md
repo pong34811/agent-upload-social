@@ -4,14 +4,14 @@
 
 ## เป้าหมาย
 
-เมื่อเจ้าของสั่งอัปโหลดไปยังช่อง YouTube และโปรแกรมไม่พบ OAuth credential ที่ยังใช้ได้ ให้เปิดหน้า local แสดงสถานะการเชื่อมต่อ พร้อมเปิด Google OAuth Desktop flow เพื่อให้เจ้าของลงชื่อเข้าใช้และยินยอมด้วยตนเอง เมื่อบันทึก credential สำเร็จและยืนยันช่องเป้าหมายได้ จึงดำเนินการอัปโหลดตามคำสั่งเดิมต่อ
+เมื่อเจ้าของสั่งอัปโหลดไปยังช่อง YouTube และ Credential Manager ไม่มี OAuth credential ให้เปิดหน้า local แสดงสถานะการเชื่อมต่อ พร้อมเปิด Google OAuth Desktop flow เพื่อให้เจ้าของลงชื่อเข้าใช้และยินยอมด้วยตนเอง เมื่อบันทึก credential สำเร็จ โปรแกรมตรวจช่องเป้าหมายต่อใน CLI แล้วจึงดำเนินการอัปโหลดตามคำสั่งเดิม
 
 คำว่า token ของช่องในงานนี้หมายถึง OAuth grant ของบัญชี Google ที่มีสิทธิ์จัดการช่อง โปรแกรมต้องตรวจช่องที่บัญชีนั้นเป็นเจ้าของจาก YouTube API แล้วจับคู่กับชื่อ, handle หรือ channel ID ที่เจ้าของสั่งก่อนอัปโหลด
 
 ## ความเข้าใจและข้อกำหนดที่ตกลงกัน
 
 - ผู้ใช้คนเดียว ใช้บน Windows ภายในเครื่อง `D:\agent-upload-social`
-- หน้า local เปิดอัตโนมัติเฉพาะเมื่อ flow อัปโหลดไม่พบ credential; ถ้ามี credential ที่ใช้ได้ให้ข้ามหน้าและใช้ flow เดิม
+- หน้า local เปิดอัตโนมัติเฉพาะเมื่อ `CredentialStore.load()` ไม่พบ credential; ถ้ามี credential ให้ flow เดิม refresh ตามปกติ
 - หน้า local เป็นหน้าสถานะ ไม่ใช่แบบฟอร์มรับรหัสผ่าน และไม่แสดง access/refresh token
 - Google เป็นผู้แสดงหน้าลงชื่อเข้าใช้และ consent เอง ใช้ OAuth Desktop client ของโปรเจกต์ใหม่ที่ `project_id` ขึ้นต้น `mfk110`
 - ใช้ scope เดิมเท่านั้น: `youtube.upload` และ `youtube.readonly`
@@ -22,7 +22,7 @@
 
 ## สถานะปัจจุบัน
 
-`CliApp._upload` ตรวจโปรไฟล์และ policy ก่อนอ่าน credential จากนั้นเรียก `OAuthService.authorize` เมื่อไม่มี credential. `authorize_desktop` ตรวจรูปแบบ Desktop client และ prefix `mfk110`, เปิด `InstalledAppFlow.run_local_server`, และบันทึก credential ผ่าน `CredentialStore` ไปยัง Windows Credential Manager. หลัง OAuth โปรแกรมเรียก YouTube API และ runner ตรวจ ownership/match ของ channel ก่อนเริ่ม upload
+`CliApp._upload` ตรวจโปรไฟล์และ policy ก่อนอ่าน credential จากนั้นเรียก `OAuthService.authorize` เมื่อไม่มี credential. `authorize_desktop` ตรวจรูปแบบ Desktop client และ prefix `mfk110`, เปิด `InstalledAppFlow.run_local_server`, และบันทึก credential ผ่าน `CredentialStore` ไปยัง Windows Credential Manager. หาก credential ที่มีอยู่ refresh แล้วถูก Google ปฏิเสธ flow ปัจจุบันจะหยุดและล้างข้อมูลตามเดิม; คำสั่ง upload ครั้งใหม่จะพบว่าไม่มี credential และเปิด local page. หลัง OAuth โปรแกรมเรียก YouTube API และ runner ตรวจ ownership/match ของ channel ก่อนเริ่ม upload
 
 จุดที่ขาดคือหน้า local ของโปรแกรมสำหรับบอกสถานะขณะรอผู้ใช้ทำ Google OAuth. ข้อเสนอนี้เพิ่มเฉพาะ status surface โดยคง flow, scopes, credential backend, channel verification และ upload gates เดิม
 
