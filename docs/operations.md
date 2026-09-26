@@ -80,3 +80,16 @@ kt404-youtube profile revoke-authorization --channel-id CHANNEL_ID
 4. เพิ่ม trigger ตอนผู้ใช้ sign in เพื่อให้ตรวจข้อมูลหลังเครื่องกลับมาออนไลน์ อย่าตั้ง trigger แบบ file watcher หรือเพิ่มพาธวิดีโอ/คำสั่ง `upload` ใน task
 
 maintenance ล้าง resumable session URL ที่ไม่ได้ใช้งาน 30 วัน แล้วให้การอัปโหลดครั้งถัดไปเริ่ม session ใหม่ หาก OAuth ถูกเพิกถอนหรือช่องไม่อยู่ในบัญชีแล้ว maintenance หยุด ลบข้อมูล API-derived ของช่อง และล้าง channel ID/pilot ID ในโปรไฟล์เพื่อไม่ให้ประมวลผลต่อด้วยข้อมูลเก่า
+
+## ผลตรวจโฟลเดอร์ที่ผู้ใช้อนุมัติ
+
+ตรวจแบบอ่านอย่างเดียวเมื่อ 2026-09-26 ที่ `G:\My Drive\Projects\Katy404\2026-09\vdo`:
+
+- ไฟล์ระดับบนสุด: MOV 24 ไฟล์, JPG 24 ไฟล์
+- scanner จับคู่ MOV/JPG ได้ 24 คู่, พบ issue 0 รายการ และอ่านเฉพาะโฟลเดอร์ `vdo` ไม่ไล่ parent folder
+- `ffprobe` อ่านคลิปได้ครบ: แนวนอน 12, แนวตั้ง 12
+- ไม่มี OAuth, YouTube API request หรือ upload ในการตรวจนี้
+
+นี่เป็น **asset inventory** ไม่ใช่ CLI metadata dry-run เต็ม; ยังไม่ได้ตรวจ title/description/tags เทียบกับโปรไฟล์จริง เพราะเจ้าของยังไม่ได้ตั้ง category, description, Made for Kids, synthetic-media, Official Artist Channel และ rights declarations ในโปรไฟล์ ต้องตั้งค่า/ตรวจข้อเท็จจริงเหล่านี้ก่อน dry-run เต็ม
+
+คลิปนำร่องและ batch ยังไม่ได้อัปโหลด: ขั้นต่อไปต้องสร้าง Desktop OAuth JSON ใหม่จาก project ID ที่ขึ้นต้น `mfk110`, เติมช่องทางติดต่อจริงและเผยแพร่ privacy policy บน HTTPS, ตั้งโปรไฟล์/ยอมรับ policy และอนุญาตบัญชีเจ้าของ จากนั้นจึงรัน dry-run เต็มและ Private pilot; batch เต็มต้องรอเจ้าของตรวจ pilot แล้วอนุมัติ video ID ก่อน
