@@ -97,7 +97,12 @@ def test_authorize_uses_desktop_flow_and_saves_owner_credential(tmp_path, fake_k
     credentials = authorize_desktop(secrets_path, store)
 
     assert credentials.refresh_token == "refresh-value"
-    flow.run_local_server.assert_called_once_with(port=0, access_type="offline", prompt="consent")
+    flow.run_local_server.assert_called_once_with(
+        port=0,
+        access_type="offline",
+        prompt="consent",
+        timeout_seconds=600,
+    )
     assert store.load("owner").refresh_token == "refresh-value"
 
 
@@ -131,7 +136,12 @@ def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_
     authorize_desktop(secrets_path, store, on_authorization_started=lambda: events.append("page"))
 
     assert events == ["flow", "page", "google", "stored"]
-    flow.run_local_server.assert_called_once_with(port=0, access_type="offline", prompt="consent")
+    flow.run_local_server.assert_called_once_with(
+        port=0,
+        access_type="offline",
+        prompt="consent",
+        timeout_seconds=600,
+    )
 
 
 def test_authorize_rejects_old_upload_project_before_browser_consent(tmp_path, fake_keyring, monkeypatch):

@@ -193,6 +193,22 @@ def test_oauth_service_marks_stopped_and_finishes_after_authorization_error(monk
     assert page.steps == ["start", "waiting", "stopped", "finish"]
 
 
+def test_oauth_service_marks_stopped_when_owner_interrupts_authorization(monkeypatch):
+    page = RecordingOAuthStatusPage()
+
+    def authorize(_path, _store, *, on_authorization_started):
+        on_authorization_started()
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr("katy404_youtube_agent.auth.authorize_desktop", authorize)
+    service = OAuthService(status_page_factory=lambda: page)
+
+    with pytest.raises(KeyboardInterrupt):
+        service.authorize(Path("client.json"), object())
+
+    assert page.steps == ["start", "waiting", "stopped", "finish"]
+
+
 @pytest.mark.parametrize("browser_result", [False, "raise"])
 def test_oauth_page_open_failure_stops_before_google_api_or_upload(cli, monkeypatch, capsys, browser_result):
     import katy404_youtube_agent.auth as auth

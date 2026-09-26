@@ -23,6 +23,7 @@ SCOPES = (
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
 )
+OAUTH_AUTHORIZATION_TIMEOUT_SECONDS = 600
 
 
 class CredentialStoreError(RuntimeError):
@@ -147,7 +148,12 @@ def authorize_desktop(
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), scopes=SCOPES)
     if on_authorization_started is not None:
         on_authorization_started()
-    credentials = flow.run_local_server(port=0, access_type="offline", prompt="consent")
+    credentials = flow.run_local_server(
+        port=0,
+        access_type="offline",
+        prompt="consent",
+        timeout_seconds=OAUTH_AUTHORIZATION_TIMEOUT_SECONDS,
+    )
     credential_store.save(OWNER_ACCOUNT_KEY, credentials)
     return credentials
 

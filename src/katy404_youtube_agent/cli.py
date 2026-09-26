@@ -63,6 +63,10 @@ class OAuthService:
             if page_started and status_page is not None:
                 status_page.set_state("connected")
             return credentials
+        except KeyboardInterrupt:
+            if page_started and status_page is not None:
+                status_page.set_state("stopped")
+            raise
         except Exception:
             if page_started and status_page is not None:
                 status_page.set_state("stopped")
