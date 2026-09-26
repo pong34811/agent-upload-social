@@ -1,0 +1,19 @@
+# OAuth credentials and local application data
+client_secrets.json
+**/client_secrets.json
+token.json
+**/token.json
+*.sqlite3
+*.db
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
