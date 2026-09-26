@@ -179,6 +179,27 @@ def test_full_batch_waits_for_private_pilot_review(runner, fake_api, media_folde
     assert fake_api.begin_upload.call_count == 0
 
 
+def test_upload_preflight_callback_runs_before_video_transport(runner, fake_api, media_folder):
+    events = []
+    original_begin = fake_api.begin_upload.side_effect
+
+    def record_video_insert(*args, **kwargs):
+        events.append("video_insert")
+        return original_begin(*args, **kwargs)
+
+    fake_api.begin_upload.side_effect = record_video_insert
+    report = runner.upload(
+        media_folder,
+        "Katy404",
+        limit=1,
+        force_private=True,
+        on_preflight=lambda *_args: events.append("preflight"),
+    )
+
+    assert events == ["preflight", "video_insert"]
+    assert report.uploaded_count == 1
+
+
 def test_public_visibility_is_blocked_until_api_audit(valid_profile, store, fake_api, media_folder):
     from dataclasses import replace
 

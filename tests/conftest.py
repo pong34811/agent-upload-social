@@ -26,6 +26,7 @@ def valid_profile(tmp_path):
         made_for_kids=False,
         contains_synthetic_media=False,
         is_official_artist_channel=False,
+        asset_rights_confirmed=True,
         shorts_title_suffix=" #Shorts",
         privacy_policy_url="https://privacy.example.test/katy404",
         policy_accepted_at=NOW.isoformat().replace("+00:00", "Z"),

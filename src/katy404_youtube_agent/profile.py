@@ -135,6 +135,8 @@ def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -
         raise ProfileError("contains_synthetic_media must be declared true or false")
     if not isinstance(profile.is_official_artist_channel, bool):
         raise ProfileError("is_official_artist_channel must be declared true or false")
+    if profile.asset_rights_confirmed is not True:
+        raise ProfileError("Confirm that you have rights to the video's audio, visuals, game footage, and overlays")
     _require_text(profile.category_id, "category_id")
     _require_text(profile.description_template, "description_template")
     if not isinstance(profile.tags, tuple) or not all(isinstance(tag, str) for tag in profile.tags):

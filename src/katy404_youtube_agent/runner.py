@@ -89,6 +89,7 @@ class BatchRunner:
         *,
         limit: int | None = None,
         force_private: bool = False,
+        on_preflight: Callable[[Any, int, int, str, UploadProfile], None] | None = None,
     ) -> BatchReport:
         """Upload a specified folder; the initial upload can only be one Private pilot."""
         if limit is not None and limit < 1:
@@ -131,6 +132,16 @@ class BatchRunner:
                 )
                 continue
             jobs.append(self.store.get_or_create_job(candidate, channel.channel_id, metadata))
+
+        if on_preflight is not None:
+            predicted_skips = sum(job.state in {"complete", "skipped"} for job in jobs)
+            on_preflight(
+                channel,
+                len(jobs),
+                len(report_items) + predicted_skips,
+                effective_privacy,
+                self.profile,
+            )
 
         upload_report = self.upload_prepared(jobs)
         report_items.extend(upload_report.items)

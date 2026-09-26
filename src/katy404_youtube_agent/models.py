@@ -20,6 +20,7 @@ class UploadProfile:
     made_for_kids: bool | None = None
     contains_synthetic_media: bool | None = None
     is_official_artist_channel: bool = False
+    asset_rights_confirmed: bool | None = None
     shorts_title_suffix: str = " #Shorts"
     privacy_policy_url: str | None = None
     policy_accepted_at: str | None = None
