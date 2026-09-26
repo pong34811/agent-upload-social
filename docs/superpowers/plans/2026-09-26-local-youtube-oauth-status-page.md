@@ -14,10 +14,10 @@
 
 - ผู้ใช้คนเดียว ใช้บน Windows ภายในเครื่อง `D:\agent-upload-social`.
 - HTTP status page bind เฉพาะ `127.0.0.1` และใช้พอร์ตว่างจากระบบ.
-- ใช้ OAuth Desktop client ของโปรเจกต์ใหม่ที่ `project_id` ขึ้นต้น `mfk110`.
+- ใช้ OAuth Desktop client ที่เจ้าของเลือกจาก Google Cloud.
 - ใช้ scope เดิมเท่านั้น: `youtube.upload` และ `youtube.readonly`.
 - เก็บ OAuth credential ใน Windows Credential Manager; ห้ามเขียน token ลงไฟล์, log, URL หรือ HTML.
-- ตรวจ policy/configuration ก่อนเปิด browser เหมือน flow ปัจจุบัน; ใช้โฟลเดอร์และ channel ที่ผู้ใช้ระบุเท่านั้น.
+- ตรวจ configuration ก่อนเปิด browser; ใช้โฟลเดอร์และ channel ที่ผู้ใช้ระบุเท่านั้น.
 - ใช้ Python standard library สำหรับหน้า local; ไม่มี frontend dependency, CDN, analytics หรือ resource จาก third party.
 - ไม่เปลี่ยนข้อกำหนด Private pilot และการอนุมัติแยกก่อน batch เต็ม.
 - OAuth consent ยังคงเป็นการกระทำของเจ้าของในหน้า Google; หาก OAuth ล้มเหลวหรือบันทึก credential ไม่สำเร็จต้องหยุดก่อน upload.
@@ -27,7 +27,7 @@
 - Request ที่มี Host ผิดหรือ route/session ID ที่เดาไม่ถูกต้องต้องไม่อ่านสถานะ และ response ต้องไม่มี OAuth credential — pin in Task 1.
 - Browser ไม่ acknowledge หลังอ่านสถานะปลายทางต้องทำให้ local server ปิดภายใน timeout 5 วินาที — pin in Task 1.
 - `webbrowser.open()` ที่คืน `False` หรือโยน exception ต้องปิด local server, หยุดก่อน Google OAuth และไม่มี upload — pin in Tasks 1–2.
-- OAuth client ที่ไม่ใช่ `mfk110` ต้องถูกปฏิเสธก่อนหน้า local หรือ Google OAuth เปิด — pin in Task 2.
+- OAuth client ที่ไม่ใช่ Desktop installed-app JSON ต้องถูกปฏิเสธก่อนหน้า local หรือ Google OAuth เปิด — pin in Task 2.
 - Google ปฏิเสธ consent หรือ Credential Manager บันทึกไม่ได้ต้องแสดง `stopped`, ไม่เปิดเผย exception/secret และไม่ upload — pin in Task 2.
 - OAuth ผ่านแต่ไม่พบ channel เป้าหมายต้องหยุดก่อน video upload และคง credential ไว้ — pin in Tasks 2–3.
 
@@ -108,7 +108,7 @@ git commit -m "feat: add local OAuth status page"
 
 - [x] **Step 1: Write failing OAuth lifecycle and CLI ordering tests**
 
-In `tests/test_auth.py`, assert that `on_authorization_started` is called only after a valid Desktop project is parsed and is not called for a non-`mfk110` project. In `tests/test_cli.py`, use a recording status-page fake and mocked `authorize_desktop` to assert success calls `start → waiting → connected → finish`, while OAuth exceptions call `start → waiting → stopped → finish`. Also test that an existing credential skips OAuth; with `credentials.load("owner")` returning `None`, verify `authorize` happens before API construction/upload; when the status page opener returns `False` or raises, verify the OAuth callback/Google flow, API construction, and upload do not run; when Google consent is denied or Credential Manager save raises a secret-like exception, verify the page ends in `stopped`, API construction/upload do not run, and the exception body is absent from output; and when OAuth succeeds but the requested channel is absent, verify the upload stops and the newly stored credential remains available.
+In `tests/test_auth.py`, assert that `on_authorization_started` is called only after a valid Desktop installed-app client is parsed and is not called for malformed JSON. In `tests/test_cli.py`, use a recording status-page fake and mocked `authorize_desktop` to assert success calls `start → waiting → connected → finish`, while OAuth exceptions call `start → waiting → stopped → finish`. Also test that an existing credential skips OAuth; with `credentials.load("owner")` returning `None`, verify `authorize` happens before API construction/upload; when the status page opener returns `False` or raises, verify the OAuth callback/Google flow, API construction, and upload do not run; when Google consent is denied or Credential Manager save raises a secret-like exception, verify the page ends in `stopped`, API construction/upload do not run, and the exception body is absent from output; and when OAuth succeeds but the requested channel is absent, verify the upload stops and the newly stored credential remains available.
 
 Implement `RecordingOAuthStatusPage` with `start()` setting a `started` flag, `set_state(state)` appending to `states`, and `finish()` setting a `finished` flag. Inject it through `OAuthService(status_page_factory=...)`; invoke `authorize_desktop` through the `auth.py` import path so the `on_authorization_started` callback starts the fake page.
 
@@ -165,7 +165,7 @@ git commit -m "feat: show local status during YouTube OAuth"
 - Modify: `docs/superpowers/specs/2026-09-26-local-oauth-login-page-design.md` (update approval status)
 
 **Interfaces:**
-- `CliApp._upload` keeps its existing order: validate the accepted policy/profile, load Credential Manager, authorize only when no credential exists, build API, verify the exact requested channel, then start the upload runner.
+- `CliApp._upload` keeps its existing order: validate the profile, load Credential Manager, authorize only when no credential exists, build API, verify the exact requested channel, then start the upload runner.
 - User-facing docs explain that the local status page appears only for the missing-credential branch; Google still handles password/consent; credential storage remains Credential Manager; channel errors are reported by CLI; a failed/revoked authorization stops that upload invocation.
 
 - [x] **Step 1: Write a failing documentation regression test**
@@ -216,7 +216,7 @@ Run: `pytest tests/test_cli.py tests/test_setup_docs.py tests/test_runner.py -q`
 Expected: focused CLI, documentation, and channel gate tests pass.
 
 Run: `pytest -q`
-Expected: the full suite passes with all existing upload, policy, pilot, channel, and retry gates intact.
+Expected: the full suite passes with all existing upload, pilot, channel, and retry gates intact.
 
 - [x] **Step 5: Review whitespace and commit documentation/regressions**
 

@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import json
-import os
 import tempfile
 from dataclasses import asdict, fields
-from datetime import datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from .models import UploadProfile
 
-POLICY_VERSION = "2026-09-26"
 _ALLOWED_PRIVACY = {"private", "unlisted", "public"}
 
 
@@ -22,13 +18,7 @@ class ProfileError(ValueError):
 
 
 def _profile_path_default() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        return Path(local_app_data) / "Katy404" / "YouTubeUploader" / "profile.json"
-    if os.name == "nt":
-        return Path.home() / "AppData" / "Local" / "Katy404" / "YouTubeUploader" / "profile.json"
-    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return data_home / "Katy404" / "YouTubeUploader" / "profile.json"
+    return Path(__file__).resolve().parents[2] / "profile.json"
 
 
 def load_profile(path: Path) -> UploadProfile:
@@ -68,7 +58,7 @@ def load_profile(path: Path) -> UploadProfile:
 
 
 def save_profile(path: Path, profile: UploadProfile) -> None:
-    """Atomically save a profile; its default store is outside synced folders."""
+    """Atomically save a profile to the requested path."""
     if not isinstance(profile, UploadProfile):
         raise TypeError("profile must be an UploadProfile")
     path = Path(path)
@@ -95,7 +85,7 @@ def save_profile(path: Path, profile: UploadProfile) -> None:
 
 
 class ProfileStore:
-    """Profile storage backed by local application data by default."""
+    """Profile storage backed by the project root by default."""
 
     def __init__(self, path: Path | None = None) -> None:
         self.path = Path(path) if path is not None else _profile_path_default()
@@ -114,7 +104,7 @@ def _require_text(value: Any, field_name: str) -> str:
 
 
 def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -> None:
-    """Fail closed unless required setup, consent, and visibility gates are met."""
+    """Fail closed unless required owner settings and visibility gates are met."""
     if not isinstance(profile, UploadProfile):
         raise ProfileError("A valid upload profile is required")
 
@@ -142,19 +132,6 @@ def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -
     if not isinstance(profile.tags, tuple) or not all(isinstance(tag, str) for tag in profile.tags):
         raise ProfileError("tags must be a tuple of strings")
 
-    policy_url = _require_text(profile.privacy_policy_url, "privacy_policy_url")
-    parsed_policy_url = urlparse(policy_url)
-    if parsed_policy_url.scheme != "https" or not parsed_policy_url.netloc:
-        raise ProfileError("privacy_policy_url must be an HTTPS URL")
-    if profile.policy_version_accepted != POLICY_VERSION or not profile.policy_accepted_at:
-        raise ProfileError(f"Accept the current privacy policy before API operations ({POLICY_VERSION})")
-    try:
-        accepted_at = datetime.fromisoformat(profile.policy_accepted_at.replace("Z", "+00:00"))
-    except (AttributeError, ValueError) as exc:
-        raise ProfileError("policy_accepted_at must be a valid ISO 8601 timestamp") from exc
-    if accepted_at.tzinfo is None:
-        raise ProfileError("policy_accepted_at must include a timezone")
-
     if profile.client_secrets_path is None:
         raise ProfileError("client_secrets_path is required")
     secrets_path = Path(profile.client_secrets_path)
@@ -164,5 +141,5 @@ def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -
         raise ProfileError("Could not read Desktop OAuth client file") from exc
     installed = oauth_data.get("installed") if isinstance(oauth_data, dict) else None
     project_id = installed.get("project_id") if isinstance(installed, dict) else None
-    if not isinstance(project_id, str) or not project_id.startswith("mfk110"):
-        raise ProfileError("Desktop OAuth project_id must start with mfk110")
+    if not isinstance(installed, dict) or not isinstance(project_id, str) or not project_id.strip():
+        raise ProfileError("Desktop OAuth client must contain installed.project_id")

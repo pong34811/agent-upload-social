@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -25,6 +26,7 @@ SCOPES = (
 )
 OAUTH_AUTHORIZATION_TIMEOUT_SECONDS = 600
 TOKEN_FILENAME = "token_waritnan34811.json"
+_ACCOUNT_KEY_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,39}\Z")
 
 
 class CredentialStoreError(RuntimeError):
@@ -59,34 +61,46 @@ class ChannelRef:
 
 
 class CredentialStore:
-    """Store the OAuth credential in the project's ignored channel-named token file.
+    """Store OAuth credentials in separate ignored files for each account.
 
     ``backend`` remains available for isolated tests and legacy callers. Normal
-    application runs use the file store so the token stays beside this project
-    and is excluded by ``.gitignore``.
+    application runs use the file store so tokens stay beside this project and
+    are excluded by ``.gitignore``.
     """
 
     def __init__(self, backend: Any | None = None, path: Path | None = None) -> None:
         self._backend = backend
         self.path = Path(path) if path is not None else Path(__file__).resolve().parents[2] / TOKEN_FILENAME
 
-    def _load_file_data(self) -> dict[str, Any] | None:
-        if not self.path.exists():
+    def _account_path(self, account_key: str) -> Path:
+        self._validate_account_key(account_key)
+        if account_key == OWNER_ACCOUNT_KEY:
+            return self.path
+        return self.path.with_name(f"token_{account_key}.json")
+
+    def credential_path(self, account_key: str) -> Path:
+        """Return the ignored token file path for a named account."""
+        return self._account_path(account_key)
+
+    def _load_file_data(self, path: Path | None = None) -> dict[str, Any] | None:
+        path = self.path if path is None else path
+        if not path.exists():
             return None
         try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
+            data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise CredentialStoreError("Could not read the local OAuth token file") from exc
         if not isinstance(data, dict):
             raise CredentialStoreError("Local OAuth token file must contain a JSON object")
         return data
 
-    def _save_file_data(self, data: dict[str, Any]) -> None:
-        temporary = self.path.with_name(f".{self.path.name}.tmp")
+    def _save_file_data(self, data: dict[str, Any], path: Path | None = None) -> None:
+        path = self.path if path is None else path
+        temporary = path.with_name(f".{path.name}.tmp")
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
+            path.parent.mkdir(parents=True, exist_ok=True)
             temporary.write_text(json.dumps(data, ensure_ascii=True, separators=(",", ":")), encoding="utf-8")
-            os.replace(temporary, self.path)
+            os.replace(temporary, path)
         except OSError as exc:
             try:
                 temporary.unlink(missing_ok=True)
@@ -94,7 +108,73 @@ class CredentialStore:
                 pass
             raise CredentialStoreError("Could not store the local OAuth token file") from exc
 
+    @staticmethod
+    def _is_legacy_credential(data: dict[str, Any]) -> bool:
+        return "token" in data or "refresh_token" in data
+
+    @staticmethod
+    def _validate_account_key(account_key: str) -> None:
+        if not isinstance(account_key, str) or not _ACCOUNT_KEY_PATTERN.fullmatch(account_key):
+            raise CredentialStoreError(
+                "OAuth account name must be 1-40 letters, numbers, underscores, or hyphens"
+            )
+
+    def list_account_keys(self) -> list[str]:
+        """Return stored account labels only; move old named entries into separate files."""
+        if self._backend is not None:
+            return []
+        data = self._load_file_data()
+        account_keys: set[str] = set()
+        if data is not None and self._is_legacy_credential(data):
+            account_keys = {OWNER_ACCOUNT_KEY}
+        elif data is not None:
+            account_keys = {
+                key for key, value in data.items()
+                if isinstance(key, str)
+                and _ACCOUNT_KEY_PATTERN.fullmatch(key)
+                and isinstance(value, dict)
+                and self._is_legacy_credential(value)
+            }
+            for account_key in sorted(account_keys - {OWNER_ACCOUNT_KEY}):
+                self._migrate_combined_account(account_key)
+
+        try:
+            for token_path in self.path.parent.glob("token_*.json"):
+                if token_path == self.path:
+                    continue
+                account_key = token_path.stem.removeprefix("token_")
+                if account_key != OWNER_ACCOUNT_KEY and _ACCOUNT_KEY_PATTERN.fullmatch(account_key):
+                    account_keys.add(account_key)
+        except OSError as exc:
+            raise CredentialStoreError("Could not list local OAuth token files") from exc
+        return sorted(account_keys)
+
+    def _migrate_combined_account(self, account_key: str) -> None:
+        """Split one named credential out of the earlier multi-account JSON file."""
+        if account_key == OWNER_ACCOUNT_KEY:
+            return
+        data = self._load_file_data()
+        if data is None or self._is_legacy_credential(data):
+            return
+        credential_data = data.get(account_key)
+        if not isinstance(credential_data, dict) or not self._is_legacy_credential(credential_data):
+            return
+
+        account_path = self._account_path(account_key)
+        existing_account_data = self._load_file_data(account_path)
+        if existing_account_data is None or not self._is_legacy_credential(existing_account_data):
+            self._save_file_data(credential_data, account_path)
+
+        del data[account_key]
+        if not data:
+            self.path.unlink(missing_ok=True)
+        elif set(data) == {OWNER_ACCOUNT_KEY} and isinstance(data[OWNER_ACCOUNT_KEY], dict):
+            self._save_file_data(data[OWNER_ACCOUNT_KEY])
+        else:
+            self._save_file_data(data)
+
     def load(self, account_key: str) -> Credentials | None:
+        self._validate_account_key(account_key)
         if self._backend is not None:
             try:
                 serialized = self._backend.get_password(CREDENTIAL_SERVICE, account_key)
@@ -108,13 +188,15 @@ class CredentialStore:
             except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
                 raise CredentialStoreError("Stored OAuth credential data is invalid") from exc
 
-        data = self._load_file_data()
+        account_path = self._account_path(account_key)
+        data = self._load_file_data(account_path)
+        if data is None and account_key != OWNER_ACCOUNT_KEY:
+            self._migrate_combined_account(account_key)
+            data = self._load_file_data(account_path)
         if data is None:
             return None
-        # The owner credential uses the standard Google OAuth JSON shape.
-        serialized_data: Any = data
-        if account_key != OWNER_ACCOUNT_KEY or "token" not in data and "refresh_token" not in data:
-            serialized_data = data.get(account_key)
+        # Accept the original single-credential file and the previous wrapped shape.
+        serialized_data: Any = data if self._is_legacy_credential(data) else data.get(account_key)
         if serialized_data is None:
             return None
         try:
@@ -123,6 +205,7 @@ class CredentialStore:
             raise CredentialStoreError("Stored OAuth credential data is invalid") from exc
 
     def save(self, account_key: str, credentials: Credentials) -> None:
+        self._validate_account_key(account_key)
         try:
             serialized = credentials.to_json()
             if not isinstance(serialized, str) or not serialized:
@@ -141,13 +224,19 @@ class CredentialStore:
             return
 
         if account_key == OWNER_ACCOUNT_KEY:
-            self._save_file_data(data)
+            existing = self._load_file_data() or {}
+            if not existing or self._is_legacy_credential(existing):
+                self._save_file_data(data)
+            else:
+                existing[OWNER_ACCOUNT_KEY] = data
+                self._save_file_data(existing)
             return
-        existing = self._load_file_data() or {}
-        existing[account_key] = data
-        self._save_file_data(existing)
+
+        self._migrate_combined_account(account_key)
+        self._save_file_data(data, self._account_path(account_key))
 
     def delete(self, account_key: str) -> None:
+        self._validate_account_key(account_key)
         if self._backend is not None:
             try:
                 self._backend.delete_password(CREDENTIAL_SERVICE, account_key)
@@ -157,10 +246,17 @@ class CredentialStore:
                     raise CredentialStoreError("Could not delete legacy credential data") from exc
             return
 
+        if account_key != OWNER_ACCOUNT_KEY:
+            try:
+                self._account_path(account_key).unlink(missing_ok=True)
+            except OSError as exc:
+                raise CredentialStoreError("Could not delete the local OAuth token file") from exc
         data = self._load_file_data()
         if data is None:
             return
-        if account_key == OWNER_ACCOUNT_KEY and ("token" in data or "refresh_token" in data):
+        if self._is_legacy_credential(data):
+            if account_key != OWNER_ACCOUNT_KEY:
+                return
             try:
                 self.path.unlink(missing_ok=True)
             except OSError as exc:
@@ -168,7 +264,16 @@ class CredentialStore:
             return
         if account_key in data:
             del data[account_key]
-            self._save_file_data(data)
+            if data:
+                if set(data) == {OWNER_ACCOUNT_KEY} and isinstance(data[OWNER_ACCOUNT_KEY], dict):
+                    self._save_file_data(data[OWNER_ACCOUNT_KEY])
+                else:
+                    self._save_file_data(data)
+            else:
+                try:
+                    self.path.unlink(missing_ok=True)
+                except OSError as exc:
+                    raise CredentialStoreError("Could not delete the local OAuth token file") from exc
 
     def revoke(self, account_key: str) -> None:
         credentials = self.load(account_key)
@@ -186,7 +291,7 @@ class CredentialStore:
         self.delete(account_key)
 
 
-def _validate_desktop_client(client_secrets_path: Path, *, require_project_prefix: bool = True) -> None:
+def _validate_desktop_client(client_secrets_path: Path) -> None:
     client_secrets_path = Path(client_secrets_path)
     try:
         data = json.loads(client_secrets_path.read_text(encoding="utf-8"))
@@ -198,29 +303,28 @@ def _validate_desktop_client(client_secrets_path: Path, *, require_project_prefi
     project_id = installed.get("project_id")
     if not isinstance(project_id, str) or not project_id.strip():
         raise OAuthConfigurationError("Desktop OAuth client is missing project_id")
-    if require_project_prefix and not project_id.startswith("mfk110"):
-        raise OAuthConfigurationError("Desktop OAuth project_id must start with mfk110")
 
 
 def authorize_desktop(
     client_secrets_path: Path,
     credential_store: CredentialStore,
     *,
+    account_key: str = OWNER_ACCOUNT_KEY,
     on_authorization_started: Callable[[], None] | None = None,
-    require_project_prefix: bool = True,
 ) -> Credentials:
-    """Open the one-time local browser consent flow and save the grant securely."""
-    _validate_desktop_client(client_secrets_path, require_project_prefix=require_project_prefix)
+    """Open the local browser consent flow and save the grant under its account label."""
+    CredentialStore._validate_account_key(account_key)
+    _validate_desktop_client(client_secrets_path)
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), scopes=SCOPES)
     if on_authorization_started is not None:
         on_authorization_started()
     credentials = flow.run_local_server(
         port=0,
         access_type="offline",
-        prompt="consent",
+        prompt="consent" if account_key == OWNER_ACCOUNT_KEY else "select_account consent",
         timeout_seconds=OAUTH_AUTHORIZATION_TIMEOUT_SECONDS,
     )
-    credential_store.save(OWNER_ACCOUNT_KEY, credentials)
+    credential_store.save(account_key, credentials)
     return credentials
 
 

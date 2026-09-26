@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
 
 from .auth import (
     OWNER_ACCOUNT_KEY,
@@ -22,13 +22,16 @@ from .auth import (
 )
 from .local_oauth_status import LocalOAuthStatusPage
 from .models import BatchReport, UploadProfile
-from .profile import POLICY_VERSION, ProfileError, ProfileStore, validate_upload_profile
+from .profile import (
+    ProfileError,
+    ProfileStore,
+    validate_upload_profile,
+)
 from .runner import BatchRunner, PilotApprovalRequired
 from .store import JobStateError, JobStore
 from .youtube import YouTubeApi
 
 
-YOUTUBE_TERMS_URL = "https://www.youtube.com/t/terms"
 GOOGLE_SECURITY_URL = "https://security.google.com/settings/security/permissions"
 
 
@@ -45,8 +48,7 @@ class OAuthService:
         self,
         client_secrets_path: Path,
         credential_store: CredentialStore,
-        *,
-        allow_any_project: bool = False,
+        account_key: str = OWNER_ACCOUNT_KEY,
     ) -> Any:
         from .auth import authorize_desktop
 
@@ -61,19 +63,12 @@ class OAuthService:
             status_page.set_state("waiting")
 
         try:
-            if allow_any_project:
-                credentials = authorize_desktop(
-                    client_secrets_path,
-                    credential_store,
-                    on_authorization_started=start_status_page,
-                    require_project_prefix=False,
-                )
-            else:
-                credentials = authorize_desktop(
-                    client_secrets_path,
-                    credential_store,
-                    on_authorization_started=start_status_page,
-                )
+            credentials = authorize_desktop(
+                client_secrets_path,
+                credential_store,
+                account_key=account_key,
+                on_authorization_started=start_status_page,
+            )
             if page_started and status_page is not None:
                 status_page.set_state("connected")
             return credentials
@@ -107,8 +102,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     profile = commands.add_parser("profile", help="ตั้งค่าและจัดการโปรไฟล์ช่อง")
     profile_commands = profile.add_subparsers(dest="profile_command", required=True)
-    profile_commands.add_parser("setup", help="สร้างโปรไฟล์ครั้งแรก")
-    profile_commands.add_parser("accept-policy", help="อ่านและยอมรับ privacy policy")
+    setup = profile_commands.add_parser("setup", help="เชื่อม OAuth เลือกช่อง และตั้งค่าโปรไฟล์สำหรับอัปโหลด")
+    setup.add_argument("--client-secrets", type=Path, help="พาธ Desktop OAuth JSON (ค่าเริ่มต้นคือไฟล์ในโฟลเดอร์โปรเจกต์)")
+    setup.add_argument("--oauth-account", default=OWNER_ACCOUNT_KEY, help="ชื่อ credential ที่จะใช้ เช่น channel2")
+    setup.add_argument("--replace-existing", action="store_true", help="ตั้งค่าโปรไฟล์ใหม่และเก็บสำเนาโปรไฟล์เดิมไว้")
     profile_commands.add_parser("show", help="แสดงค่าที่ตั้งไว้โดยไม่แสดง token")
     privacy = profile_commands.add_parser("set-privacy", help="เปลี่ยนความเป็นส่วนตัวเริ่มต้น")
     privacy.add_argument("status", choices=("private", "unlisted", "public"))
@@ -131,9 +128,11 @@ def _build_parser() -> argparse.ArgumentParser:
     login.add_argument("--channel", required=True, help="ชื่อช่อง, handle หรือ channel ID ที่ต้องการเชื่อม")
     token = auth_commands.add_parser(
         "token",
-        help="เปิด Google OAuth และบันทึก credential โดยไม่ต้องสร้างโปรไฟล์หรืออัปโหลดวิดีโอ",
+        help="สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API หรืออัปโหลดวิดีโอ",
     )
     token.add_argument("--client-secrets", required=True, type=Path, help="พาธ Desktop OAuth JSON")
+    token.add_argument("--account", default=OWNER_ACCOUNT_KEY, help="ชื่อใหม่สำหรับเก็บ credential แยกจากบัญชีเดิม")
+    auth_commands.add_parser("accounts", help="แสดงชื่อ credential ที่บันทึกไว้ โดยไม่แสดง token")
 
     for name in ("dry-run", "upload"):
         command = commands.add_parser(name, help="ตรวจไฟล์ในโฟลเดอร์ที่ระบุ" if name == "dry-run" else "อัปโหลดโฟลเดอร์ที่ระบุ")
@@ -178,7 +177,9 @@ class CliApp:
             if args.command == "auth" and args.auth_command == "login":
                 return self._auth_login(args.channel)
             if args.command == "auth" and args.auth_command == "token":
-                return self._auth_token(args.client_secrets)
+                return self._auth_token(args.client_secrets, args.account)
+            if args.command == "auth" and args.auth_command == "accounts":
+                return self._auth_accounts()
             if args.command == "dry-run":
                 return self._dry_run(args.folder, args.channel)
             if args.command == "upload":
@@ -200,37 +201,12 @@ class CliApp:
     def _run_profile(self, args: argparse.Namespace) -> int:
         action = args.profile_command
         if action == "setup":
-            return self._setup_profile()
+            return self._setup_profile(args.client_secrets, args.oauth_account, args.replace_existing)
         profile = self._load_profile()
         if profile is None:
             return 2
         if action == "show":
             self._show_profile(profile)
-            return 0
-        if action == "accept-policy":
-            policy_url = (profile.privacy_policy_url or "").strip()
-            parsed_policy_url = urlparse(policy_url)
-            if parsed_policy_url.scheme != "https" or not parsed_policy_url.netloc:
-                print("ตั้งค่า privacy policy URL แบบ HTTPS ที่เผยแพร่แล้วก่อนยอมรับนโยบาย", file=sys.stderr)
-                return 2
-            print(f"Privacy policy: {policy_url}")
-            print(f"YouTube Terms of Service: {YOUTUBE_TERMS_URL}")
-            print("โปรแกรมจะเก็บข้อมูล API ในเครื่องและต้องลบ/ปรับปรุงตามกำหนดในนโยบายความเป็นส่วนตัว")
-            if input("พิมพ์ ยอมรับ เพื่อยืนยันว่าอ่านและยอมรับแล้ว: ").strip() != "ยอมรับ":
-                print("ยังไม่ได้บันทึกการยอมรับ")
-                return 2
-            accepted_at = datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
-            updated = replace(
-                profile,
-                policy_accepted_at=accepted_at,
-                policy_version_accepted=POLICY_VERSION,
-            )
-            self._save_profile(updated)
-            if updated.channel_id and updated.privacy_policy_url:
-                self.store.record_policy_acceptance(
-                    updated.channel_id, updated.privacy_policy_url, accepted_at, POLICY_VERSION
-                )
-            print(f"บันทึกการยอมรับนโยบายรุ่น {POLICY_VERSION} แล้ว")
             return 0
         if action == "set-privacy":
             updated = replace(profile, privacy_status=args.status)
@@ -271,12 +247,85 @@ class CliApp:
             return self._revoke(profile, channel_id)
         return 2
 
-    def _setup_profile(self) -> int:
-        if self.profile_store.path.exists():
-            print(f"มีโปรไฟล์อยู่แล้ว: {self.profile_store.path}", file=sys.stderr)
+    def _setup_profile(
+        self,
+        client_secrets_path: Path | None = None,
+        oauth_account_key: str = OWNER_ACCOUNT_KEY,
+        replace_existing: bool = False,
+    ) -> int:
+        default_client_path = Path(__file__).resolve().parents[2] / "client_secrets.json"
+        client_path = Path(client_secrets_path or default_client_path).expanduser().resolve()
+        if not client_path.is_file():
+            print(f"ไม่พบ Desktop OAuth JSON: {client_path}", file=sys.stderr)
             return 2
-        print("สร้างโปรไฟล์ครั้งแรก (ไฟล์จะอยู่ใน LocalAppData ของ Windows)")
-        alias = self._prompt_required("ชื่อหรือ handle ของช่อง YouTube")
+
+        if self.profile_store.path.exists():
+            if not replace_existing:
+                print(
+                    f"มีโปรไฟล์อยู่แล้ว: {self.profile_store.path}; ใช้ --replace-existing หากต้องการตั้งค่าช่องใหม่",
+                    file=sys.stderr,
+                )
+                return 2
+            backup_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+            backup_path = self.profile_store.path.with_name(
+                f"{self.profile_store.path.name}.backup-{backup_stamp}"
+            )
+            try:
+                shutil.copy2(self.profile_store.path, backup_path)
+            except OSError as exc:
+                print(f"สำรองโปรไฟล์เดิมไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
+                return 2
+            print(f"เก็บสำเนาโปรไฟล์เดิมไว้ที่ {backup_path}")
+
+        print("ตั้งค่า OAuth และโปรไฟล์สำหรับอัปโหลด (คำสั่งนี้จะไม่อัปโหลดวิดีโอ)")
+        credential_store = self._get_credential_store()
+        try:
+            credentials = credential_store.load(oauth_account_key)
+            if credentials is None:
+                print(f"ยังไม่มี OAuth credential '{oauth_account_key}'; กำลังเปิด Google OAuth")
+                credentials = self._authorize_for_account(client_path, credential_store, oauth_account_key)
+            elif not getattr(credentials, "valid", True):
+                print("กำลังต่ออายุ OAuth credential ที่บันทึกไว้")
+                credentials = self.oauth.refresh(oauth_account_key, credential_store, credentials)
+            else:
+                print("ใช้ OAuth credential ที่บันทึกไว้แล้ว")
+        except AuthorizationRevokedError as exc:
+            print(f"OAuth ใช้ต่อไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
+            return 1
+        except (CredentialStoreError, AuthorizationRequiredError, ValueError, OSError) as exc:
+            print(f"เตรียม OAuth ไม่สำเร็จ: {self._safe_error(exc)}", file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f"เตรียม OAuth ไม่สำเร็จ ({type(exc).__name__})", file=sys.stderr)
+            return 1
+
+        try:
+            api = self.oauth.build_api(credentials, self.store)
+            channels = api.list_owned_channels()
+        except AuthorizationRevokedError as exc:
+            try:
+                credential_store.delete(oauth_account_key)
+            except CredentialStoreError:
+                pass
+            print(f"OAuth ถูกยกเลิกหรือหมดอายุ: {self._safe_error(exc)}", file=sys.stderr)
+            return 1
+        except (CredentialStoreError, AuthorizationRequiredError, ValueError, OSError) as exc:
+            print(f"อ่านรายชื่อช่องไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f"อ่านรายชื่อช่องไม่ได้ ({type(exc).__name__})", file=sys.stderr)
+            return 1
+
+        if not channels:
+            print("ไม่พบบัญชี YouTube channel ที่บัญชี Google นี้จัดการได้", file=sys.stderr)
+            return 2
+
+        print("เลือกช่องที่จะตั้งค่า:")
+        for index, channel in enumerate(channels, start=1):
+            identity = channel.handle or channel.channel_id
+            print(f"  {index}. {channel.display_name} ({identity})")
+        selected_channel = channels[self._prompt_index("หมายเลขช่อง", len(channels))]
+
         description = input("แม่แบบคำอธิบาย โดยใช้ {title} แทนชื่อวิดีโอ [{title}]: ").strip() or "{title}"
         shorts_suffix = input("ข้อความต่อท้ายชื่อ Shorts [ #Shorts]: ").strip() or " #Shorts"
         category_id = self._prompt_required("YouTube category ID")
@@ -286,12 +335,12 @@ class CliApp:
         synthetic = self._prompt_bool("มีเนื้อหาสังเคราะห์/ดัดแปลงที่ต้องเปิดเผยหรือไม่ (yes/no)")
         official_artist = self._prompt_bool("ช่องนี้เป็น Official Artist Channel หรือไม่ (yes/no)")
         rights_confirmed = self._prompt_bool("คุณมีสิทธิ์ใช้เสียง ภาพ เกม และ overlay ในไฟล์ชุดนี้หรือไม่ (yes/no)")
-        client_path = Path(self._prompt_required("พาธ Desktop OAuth JSON ของโปรเจกต์ mfk110 ใหม่"))
-        policy_url = self._prompt_required("URL HTTPS ของ privacy policy ที่เผยแพร่แล้ว")
 
         profile = UploadProfile(
-            channel_alias=alias,
+            channel_alias=selected_channel.display_name,
             client_secrets_path=client_path,
+            oauth_account_key=oauth_account_key,
+            channel_id=selected_channel.channel_id,
             privacy_status=privacy,
             category_id=category_id,
             description_template=description,
@@ -301,11 +350,14 @@ class CliApp:
             is_official_artist_channel=official_artist,
             asset_rights_confirmed=rights_confirmed,
             shorts_title_suffix=shorts_suffix,
-            privacy_policy_url=policy_url,
         )
         self.profile_store.save(profile)
         self.runner.profile = profile
-        print(f"สร้างโปรไฟล์สำหรับ {profile.channel_alias} แล้ว แต่ยังไม่ได้ยอมรับ privacy policy หรือเชื่อม OAuth")
+        if rights_confirmed:
+            print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; พร้อมตรวจคลิปด้วย dry-run")
+        else:
+            print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; ต้องยืนยันสิทธิ์ assets ก่อนอัปโหลด")
+        print("ยังไม่มีการอัปโหลดวิดีโอ; ต้องสั่ง upload แยกหลังตรวจ dry-run")
         return 0
 
     def _dry_run(self, folder: Path, channel: str) -> int:
@@ -327,15 +379,17 @@ class CliApp:
         profile = self._load_profile()
         if profile is None:
             return 2
-        # Keep the existing policy/configuration gates before any OAuth or API request.
+        # Validate owner-supplied channel settings before any OAuth or API request.
         validate_upload_profile(profile, requested_privacy="private")
         credential_store = self._get_credential_store()
         try:
-            credentials = credential_store.load(OWNER_ACCOUNT_KEY)
+            credentials = credential_store.load(profile.oauth_account_key)
             if credentials is None:
-                credentials = self.oauth.authorize(profile.client_secrets_path, credential_store)
+                credentials = self._authorize_for_account(
+                    profile.client_secrets_path, credential_store, profile.oauth_account_key
+                )
             elif not getattr(credentials, "valid", True):
-                credentials = self.oauth.refresh(OWNER_ACCOUNT_KEY, credential_store, credentials)
+                credentials = self.oauth.refresh(profile.oauth_account_key, credential_store, credentials)
 
             api = self.oauth.build_api(credentials, self.store)
             channel = resolve_channel(requested_channel, api.list_owned_channels())
@@ -351,21 +405,32 @@ class CliApp:
             return 1
 
         print(f"เชื่อมบัญชีและยืนยันช่อง: {channel.display_name} ({channel.channel_id})")
-        print("OAuth credential บันทึกใน token_waritnan34811.json แล้ว; ไม่มีการอัปโหลดวิดีโอ")
+        token_name = credential_store.credential_path(profile.oauth_account_key).name
+        print(f"OAuth credential บันทึกใน {token_name} แล้ว; ไม่มีการอัปโหลดวิดีโอ")
         return 0
 
-    def _auth_token(self, client_secrets_path: Path) -> int:
-        """Create the local OAuth grant without requiring upload profile metadata."""
+    def _auth_token(self, client_secrets_path: Path, account_key: str = OWNER_ACCOUNT_KEY) -> int:
+        """Create a local OAuth grant without performing YouTube API operations."""
+        client_path = Path(client_secrets_path).expanduser().resolve()
+        if not client_path.is_file():
+            print(f"ไม่พบ Desktop OAuth JSON: {client_path}", file=sys.stderr)
+            return 2
+
         credential_store = self._get_credential_store()
         try:
-            if credential_store.load(OWNER_ACCOUNT_KEY) is not None:
-                print(
-                    "มี OAuth credential อยู่แล้วใน token_waritnan34811.json; "
-                    "ไม่เขียนทับ credential เดิม",
-                    file=sys.stderr,
-                )
-                return 2
-            self.oauth.authorize(Path(client_secrets_path), credential_store, allow_any_project=True)
+            credentials = credential_store.load(account_key)
+            if credentials is not None and getattr(credentials, "valid", True):
+                print(f"OAuth credential '{account_key}' ใช้งานได้อยู่แล้ว; ไม่เปิด browser ซ้ำ")
+                if account_key == OWNER_ACCOUNT_KEY:
+                    print("หากต้องการเพิ่มบัญชี Google อีกบัญชี ให้รันซ้ำด้วย --account ชื่อใหม่ เช่น --account channel2")
+                return 0
+            if credentials is not None:
+                print(f"กำลังต่ออายุ OAuth credential '{account_key}' ที่บันทึกไว้")
+                self.oauth.refresh(account_key, credential_store, credentials)
+                print("ต่ออายุ OAuth credential สำเร็จ; ไม่มีการเรียก YouTube API")
+                return 0
+            else:
+                self._authorize_for_account(client_path, credential_store, account_key)
         except AuthorizationRevokedError as exc:
             print(f"OAuth ถูกยกเลิกหรือหมดอายุ: {self._safe_error(exc)}", file=sys.stderr)
             return 1
@@ -376,8 +441,9 @@ class CliApp:
             print(f"OAuth ไม่สำเร็จ ({type(exc).__name__})", file=sys.stderr)
             return 1
 
-        print("สร้าง OAuth credential สำเร็จและบันทึกใน token_waritnan34811.json แล้ว")
-        print("ขั้นตอนนี้ไม่มีการอัปโหลดวิดีโอ")
+        token_name = credential_store.credential_path(account_key).name
+        print(f"สร้าง OAuth credential '{account_key}' สำเร็จและบันทึกใน {token_name} แล้ว")
+        print("ขั้นตอนนี้ไม่มีการเรียก YouTube API หรืออัปโหลดวิดีโอ")
         return 0
 
     def _upload(self, args: argparse.Namespace) -> int:
@@ -392,11 +458,13 @@ class CliApp:
         validate_upload_profile(profile, requested_privacy=requested_privacy)
         credential_store = self._get_credential_store()
         try:
-            credentials = credential_store.load(OWNER_ACCOUNT_KEY)
+            credentials = credential_store.load(profile.oauth_account_key)
             if credentials is None:
-                credentials = self.oauth.authorize(profile.client_secrets_path, credential_store)
+                credentials = self._authorize_for_account(
+                    profile.client_secrets_path, credential_store, profile.oauth_account_key
+                )
             elif not getattr(credentials, "valid", True):
-                credentials = self.oauth.refresh(OWNER_ACCOUNT_KEY, credential_store, credentials)
+                credentials = self.oauth.refresh(profile.oauth_account_key, credential_store, credentials)
         except AuthorizationRevokedError as exc:
             self._handle_revoked_authorization(profile)
             print(f"OAuth ถูกยกเลิกหรือหมดอายุ; ลบข้อมูล API ในเครื่องและหยุด upload: {self._safe_error(exc)}", file=sys.stderr)
@@ -414,19 +482,11 @@ class CliApp:
             privacy_status: str,
             current_profile: UploadProfile,
         ) -> None:
-            if current_profile.channel_id and current_profile.privacy_policy_url and current_profile.policy_accepted_at:
-                self.store.record_policy_acceptance(
-                    channel.channel_id,
-                    current_profile.privacy_policy_url,
-                    current_profile.policy_accepted_at,
-                    current_profile.policy_version_accepted or POLICY_VERSION,
-                )
             print(f"ช่อง: {channel.display_name} ({channel.channel_id})")
             print(f"วิดีโอ: {video_count}")
             print(f"ข้าม: {skipped_count}")
             print(f"ความเป็นส่วนตัว: {privacy_status}")
             print(f"โปรไฟล์ revision: {self._profile_revision()}")
-            print(f"Privacy policy revision: {current_profile.policy_version_accepted or 'ยังไม่ยอมรับ'}")
             print("คำประกาศของเจ้าของสำหรับ batch นี้:")
             print(f"สิทธิ์ assets: {'ยืนยัน' if current_profile.asset_rights_confirmed else 'ยังไม่ยืนยัน'}")
             print(f"Made for Kids: {'ใช่' if current_profile.made_for_kids else 'ไม่ใช่'}")
@@ -512,7 +572,7 @@ class CliApp:
             )
             return 2
         try:
-            self._get_credential_store().revoke(OWNER_ACCOUNT_KEY)
+            self._get_credential_store().revoke(profile.oauth_account_key)
         except CredentialRevocationError:
             self._delete_account_data(profile, channel_id)
             print("ลบ token ในเครื่องและข้อมูล API ของช่องแล้ว แต่ยืนยันการยกเลิกกับ Google ไม่สำเร็จ", file=sys.stderr)
@@ -539,13 +599,13 @@ class CliApp:
             return 2
         validate_upload_profile(profile, requested_privacy="private")
         credential_store = self._get_credential_store()
-        credentials = credential_store.load(OWNER_ACCOUNT_KEY)
+        credentials = credential_store.load(profile.oauth_account_key)
         if credentials is None:
             print("ไม่พบ OAuth token; เชื่อมบัญชีใหม่ด้วยคำสั่ง upload หลังตรวจโปรไฟล์แล้ว", file=sys.stderr)
             return 1
         try:
             if not getattr(credentials, "valid", True):
-                credentials = self.oauth.refresh(OWNER_ACCOUNT_KEY, credential_store, credentials)
+                credentials = self.oauth.refresh(profile.oauth_account_key, credential_store, credentials)
             api = self.oauth.build_api(credentials, self.store)
             self.runner.api = api
             owned = api.list_owned_channels()
@@ -612,7 +672,7 @@ class CliApp:
 
     def _handle_revoked_authorization(self, profile: UploadProfile) -> None:
         try:
-            self._get_credential_store().delete(OWNER_ACCOUNT_KEY)
+            self._get_credential_store().delete(profile.oauth_account_key)
         except CredentialStoreError as exc:
             print(f"ลบ OAuth token ในเครื่องไม่สำเร็จ: {self._safe_error(exc)}", file=sys.stderr)
 
@@ -643,13 +703,34 @@ class CliApp:
             self.credential_store = self._credential_store_factory()
         return self.credential_store
 
+    def _authorize_for_account(
+        self, client_secrets_path: Path, credential_store: CredentialStore, account_key: str
+    ) -> Any:
+        if account_key == OWNER_ACCOUNT_KEY:
+            return self.oauth.authorize(client_secrets_path, credential_store)
+        return self.oauth.authorize(client_secrets_path, credential_store, account_key)
+
+    def _auth_accounts(self) -> int:
+        try:
+            account_keys = self._get_credential_store().list_account_keys()
+        except CredentialStoreError as exc:
+            print(f"อ่านรายการ OAuth ไม่สำเร็จ: {self._safe_error(exc)}", file=sys.stderr)
+            return 2
+        if not account_keys:
+            print("ยังไม่มี OAuth credential ที่บันทึกไว้")
+            return 0
+        print("OAuth account ที่บันทึกไว้:")
+        for account_key in account_keys:
+            print(f"  {account_key}")
+        return 0
+
     @staticmethod
     def _show_profile(profile: UploadProfile) -> None:
         print(f"ช่อง: {profile.channel_alias}")
         print(f"Channel ID: {profile.channel_id or 'ยังไม่ได้ยืนยัน'}")
+        print(f"OAuth account: {profile.oauth_account_key}")
         print(f"ความเป็นส่วนตัวเริ่มต้น: {profile.privacy_status}")
         print(f"YouTube API audit: {'ผ่าน' if profile.api_audit_passed else 'ยังไม่ผ่าน'}")
-        print(f"Policy: {profile.policy_version_accepted or 'ยังไม่ยอมรับ'}")
         print(f"OAuth client path: {profile.client_secrets_path or 'ยังไม่ได้ตั้งค่า'}")
         print(f"สิทธิ์ assets: {'ยืนยัน' if profile.asset_rights_confirmed else 'ยังไม่ยืนยัน'}")
         print("ไม่แสดง OAuth token หรือ client secret")
@@ -700,6 +781,14 @@ class CliApp:
             if value in choices:
                 return value
             print(f"เลือกได้เฉพาะ {', '.join(sorted(choices))}")
+
+    @staticmethod
+    def _prompt_index(label: str, item_count: int) -> int:
+        while True:
+            value = input(f"{label} (1-{item_count}): ").strip()
+            if value.isdigit() and 1 <= int(value) <= item_count:
+                return int(value) - 1
+            print(f"เลือกหมายเลข 1 ถึง {item_count}")
 
     @staticmethod
     def _prompt_bool(label: str) -> bool:

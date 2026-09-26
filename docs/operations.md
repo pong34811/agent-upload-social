@@ -4,7 +4,7 @@
 
 ก่อนงานชุดแรกหรือเมื่อ quota ใกล้เต็ม ตรวจ project ใน Google Cloud Console: 24 คลิปใช้ 24 `videos.insert` calls จาก bucket 100 calls/day ของเมธอดนี้ และ thumbnail 24 ภาพใช้ประมาณ 1,200 units จาก bucket ของ endpoint อื่นตาม [quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost) retries ที่เปิด session insert ใหม่อาจเพิ่มจำนวน calls ตัวเลขและ quota อาจเปลี่ยน ตรวจหน้า Quotas ของ project จริงก่อน batch เต็ม
 
-## ตั้งค่าโปรไฟล์และยอมรับนโยบาย
+## ตั้งค่า OAuth และโปรไฟล์
 
 เปิด PowerShell ในโฟลเดอร์โปรเจกต์และเปิด virtual environment ก่อนเรียกคำสั่ง:
 
@@ -12,12 +12,11 @@
 .venv\Scripts\Activate.ps1
 kt404-youtube profile setup
 kt404-youtube profile show
-kt404-youtube profile accept-policy
 ```
 
-`profile setup` ถามชื่อช่อง, คำอธิบาย/Tags, category, privacy, Made for Kids, synthetic media, Official Artist Channel, การรับรองสิทธิ์ assets, พาธ OAuth Desktop JSON และ URL privacy policy ที่เผยแพร่แล้ว การตั้งค่าโปรไฟล์ไม่ได้เปิด browser หรือเชื่อม OAuth
+`auth token --client-secrets <พาธ Desktop OAuth JSON>` สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API ส่วน `profile setup` ใช้ OAuth อ่านรายชื่อช่อง แล้วให้เจ้าของเลือกช่องและยืนยันคำอธิบาย/Tags, category, privacy, Made for Kids, synthetic media, Official Artist Channel และสิทธิ์ assets
 
-ก่อนใช้ `accept-policy` ให้อ่าน privacy policy ของโปรเจกต์และ YouTube Terms of Service ที่แสดงในคำสั่ง แล้วพิมพ์ `ยอมรับ` ด้วยตนเอง หากไม่ยอมรับ โปรแกรมจะยังไม่เปิด OAuth/API
+ทั้งสองคำสั่งไม่อัปโหลดวิดีโอ
 
 ## ตรวจคลิปโดยไม่เชื่อมต่อ YouTube
 
@@ -37,11 +36,11 @@ kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chann
 
 ### เมื่อไม่มี OAuth credential
 
-ถ้ายังไม่มี credential ใน `token_waritnan34811.json` คำสั่ง `upload` จะเปิดหน้า local แสดงสถานะ แล้วเปิด Google OAuth Desktop flow ให้เจ้าของยืนยันตัวตนบนหน้า Google หน้า local ไม่ขอรหัสผ่านและไม่แสดง token; เมื่อบันทึก credential สำเร็จ หน้าแจ้ง `connected` แล้ว CLI ตรวจช่องที่ระบุก่อนเริ่มส่งวิดีโอ หากช่องไม่ตรง/กำกวม, consent ถูกยกเลิก, ใช้เวลาเกิน 10 นาที หรือบันทึก credential ไม่สำเร็จ คำสั่งหยุดก่อน upload
+ถ้ายังไม่มี credential ในไฟล์ของ OAuth account ที่ผูกกับโปรไฟล์ คำสั่ง `upload` จะเปิดหน้า local แสดงสถานะ แล้วเปิด Google OAuth Desktop flow ให้เจ้าของยืนยันตัวตนบนหน้า Google หน้า local ไม่ขอรหัสผ่านและไม่แสดง token; เมื่อบันทึก credential สำเร็จ หน้าแจ้ง `connected` แล้ว CLI ตรวจช่องที่ระบุก่อนเริ่มส่งวิดีโอ หากช่องไม่ตรง/กำกวม, consent ถูกยกเลิก, ใช้เวลาเกิน 10 นาที หรือบันทึก credential ไม่สำเร็จ คำสั่งหยุดก่อน upload
 
-credential ที่บันทึกสำเร็จยังอยู่ใน `token_waritnan34811.json` หากชื่อช่องไม่ตรง เพื่อให้เจ้าของใช้กับคำสั่งครั้งถัดไปได้ตามต้องการ; อ่านรายละเอียดที่ [คู่มือติดตั้ง](setup.md). `dry-run` ยังคงทำงาน offline และไม่เปิด OAuth
+credential ที่บันทึกสำเร็จยังอยู่ในไฟล์ token ของ account นั้น หากชื่อช่องไม่ตรง เพื่อให้เจ้าของใช้กับคำสั่งครั้งถัดไปได้ตามต้องการ; อ่านรายละเอียดที่ [คู่มือติดตั้ง](setup.md). `dry-run` ยังคงทำงาน offline และไม่เปิด OAuth
 
-หากต้องการล็อกอินและยืนยันช่องโดยไม่เริ่ม pilot ให้ใช้ `kt404-youtube auth login --channel "Katy404"` คำสั่งนี้ผ่าน profile/policy gates เดิม ตรวจช่องจาก API และหยุดโดยไม่มีการส่งคลิป
+หากต้องการล็อกอินและยืนยันช่องโดยไม่เริ่ม pilot ให้ใช้ `kt404-youtube auth login --channel "Katy404"` คำสั่งนี้ตรวจโปรไฟล์และช่องจาก API แล้วหยุดโดยไม่มีการส่งคลิป
 
 เมื่อเสร็จ ให้ตรวจคลิปและ thumbnail ใน YouTube Studio จาก URL ที่คำสั่งรายงาน แล้วเจ้าของจึงบันทึกการอนุมัติ:
 
@@ -83,7 +82,9 @@ kt404-youtube profile delete-account-data --channel-id CHANNEL_ID
 kt404-youtube profile revoke-authorization --channel-id CHANNEL_ID
 ```
 
-คำสั่งลบข้อมูลลบ job/API-derived records, resumable state, channel ID และ pilot ID ที่ผูกกับ channel ID ในเครื่อง แต่คงการตั้งค่าปฏิบัติงานของโปรไฟล์ไว้ และไม่ลบวิดีโอบน YouTube การลบ state ทำให้ hash เดิมไม่ถูกกันซ้ำอีกในครั้งถัดไป คำสั่ง revoke ส่งคำขอยกเลิก grant กับ Google, ลบ OAuth token ใน `token_waritnan34811.json` และลบข้อมูลของช่อง หากติดต่อ Google ไม่ได้ ให้ตรวจรายการแอปที่เชื่อมไว้ใน [Google Security permissions](https://security.google.com/settings/security/permissions)
+คำสั่งลบข้อมูลลบ job/API-derived records, resumable state, channel ID และ pilot ID ที่ผูกกับ channel ID ในเครื่อง แต่คงการตั้งค่าปฏิบัติงานของโปรไฟล์ไว้ และไม่ลบวิดีโอบน YouTube การลบ state ทำให้ hash เดิมไม่ถูกกันซ้ำอีกในครั้งถัดไป คำสั่ง revoke ส่งคำขอยกเลิก grant กับ Google, ลบเฉพาะไฟล์ token ของ OAuth account ที่ผูกกับโปรไฟล์ และลบข้อมูลของช่อง หากติดต่อ Google ไม่ได้ ให้ตรวจรายการแอปที่เชื่อมไว้ใน [Google Security permissions](https://security.google.com/settings/security/permissions)
+
+ตัวโปรแกรมเก็บ OAuth ได้หลายชุดเป็นไฟล์แยก เช่น `token_lamaixcom3481.json`; ตรวจชื่อที่มีได้ด้วย `kt404-youtube auth accounts`; คำสั่ง revoke ลบเฉพาะ credential ที่ผูกกับโปรไฟล์ปัจจุบัน
 
 ## Maintenance รายสัปดาห์
 
@@ -109,4 +110,4 @@ maintenance ล้าง resumable session URL ที่ไม่ได้ใช
 
 นี่เป็น **asset inventory** ไม่ใช่ CLI metadata dry-run เต็ม; ยังไม่ได้ตรวจ title/description/tags เทียบกับโปรไฟล์จริง เพราะเจ้าของยังไม่ได้ตั้ง category, description, Made for Kids, synthetic-media, Official Artist Channel และ rights declarations ในโปรไฟล์ ต้องตั้งค่า/ตรวจข้อเท็จจริงเหล่านี้ก่อน dry-run เต็ม
 
-คลิปนำร่องและ batch ยังไม่ได้อัปโหลด: ขั้นต่อไปต้องสร้าง Desktop OAuth JSON ใหม่จาก project ID ที่ขึ้นต้น `mfk110`, เติมช่องทางติดต่อจริงและเผยแพร่ privacy policy บน HTTPS, ตั้งโปรไฟล์/ยอมรับ policy และอนุญาตบัญชีเจ้าของ จากนั้นจึงรัน dry-run เต็มและ Private pilot; batch เต็มต้องรอเจ้าของตรวจ pilot แล้วอนุมัติ video ID ก่อน
+คลิปนำร่องและ batch ยังไม่ได้อัปโหลด: ขั้นต่อไปต้องมี Desktop OAuth JSON ที่เจ้าของเลือกจาก Google Cloud, ตั้งโปรไฟล์/ยืนยันค่า metadata และสิทธิ์ตามข้อเท็จจริง, แล้วรัน dry-run เต็มและ Private pilot; batch เต็มต้องรอเจ้าของตรวจ pilot แล้วอนุมัติ video ID ก่อน

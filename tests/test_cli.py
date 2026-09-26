@@ -15,7 +15,6 @@ from katy404_youtube_agent.auth import (
 from katy404_youtube_agent.cli import CliApp, OAuthService
 from katy404_youtube_agent.local_oauth_status import LocalOAuthStatusPage
 from katy404_youtube_agent.models import ApiVideoSnapshot, BatchReport
-from katy404_youtube_agent.profile import POLICY_VERSION
 
 
 class RecordingOAuthStatusPage:
@@ -86,12 +85,6 @@ def cli(valid_profile, store):
 
 
 @pytest.fixture
-def cli_unaccepted_policy(valid_profile, store):
-    profile = replace(valid_profile, policy_version_accepted="old-version")
-    return CliHarness(profile, store)
-
-
-@pytest.fixture
 def cli_unapproved_pilot(valid_profile, store):
     return CliHarness(replace(valid_profile, approved_pilot_video_id=None), store)
 
@@ -122,16 +115,6 @@ def test_upload_command_prints_channel_count_and_visibility_before_upload(cli, c
     assert "ความเป็นส่วนตัว: private" in output
     assert "สิทธิ์ assets: ยืนยัน" in output
     assert cli.runner.upload.call_count == 1
-
-
-def test_upload_refuses_unaccepted_privacy_policy_before_oauth(cli_unaccepted_policy):
-    cli = cli_unaccepted_policy
-    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
-
-    assert result == 2
-    assert cli.oauth.authorize.call_count == 0
-    assert cli.credentials.load.call_count == 0
-    assert cli.runner.upload.call_count == 0
 
 
 def test_missing_credential_authorizes_before_api_creation_and_upload(cli):
@@ -166,18 +149,6 @@ def test_auth_login_authorizes_and_checks_channel_without_upload(cli, capsys):
     assert result == 0
     assert events == ["authorize", "build_api", "channels"]
     assert "Katy404" in capsys.readouterr().out
-    cli.runner.upload.assert_not_called()
-
-
-def test_auth_login_refuses_unaccepted_policy_before_oauth(cli_unaccepted_policy):
-    cli = cli_unaccepted_policy
-
-    result = cli.app.run(["auth", "login", "--channel", "Katy404"])
-
-    assert result == 2
-    cli.credentials.load.assert_not_called()
-    cli.oauth.authorize.assert_not_called()
-    cli.oauth.build_api.assert_not_called()
     cli.runner.upload.assert_not_called()
 
 
@@ -384,49 +355,20 @@ def test_revoke_authorization_rejects_channel_mismatch_before_revoking(cli, cand
     assert cli.profile.approved_pilot_video_id == "approved-private-video"
 
 
-def test_accept_policy_requires_explicit_phrase_before_recording(cli, monkeypatch):
-    monkeypatch.setattr("builtins.input", lambda _: "ยอมรับ")
-
-    result = cli.app.run(["profile", "accept-policy"])
-
-    assert result == 0
-    assert cli.profile_store.save.call_count == 1
-    assert cli.profile.policy_version_accepted == POLICY_VERSION
-    assert cli.profile.policy_accepted_at is not None
-
-
-def test_accept_policy_requires_an_https_privacy_policy_url(cli, monkeypatch):
-    cli.profile = replace(cli.profile, privacy_policy_url="")
-    cli.profile_store.load.return_value = cli.profile
-    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("must reject before asking for consent"))
-
-    assert cli.app.run(["profile", "accept-policy"]) == 2
-    assert cli.profile_store.save.call_count == 0
-
-
-def test_accept_policy_decline_does_not_change_profile(cli, monkeypatch):
-    monkeypatch.setattr("builtins.input", lambda _: "ไม่ยอมรับ")
-
-    result = cli.app.run(["profile", "accept-policy"])
-
-    assert result == 2
-    assert cli.profile_store.save.call_count == 0
-
-
-def test_profile_setup_collects_owner_declarations_and_does_not_accept_policy(cli, monkeypatch):
+def test_profile_setup_collects_owner_declarations_without_policy_prompt(cli, monkeypatch):
     answers = iter([
-        "Katy404", "", "", "20", "private", "gaming, thailand", "no", "no", "no", "yes",
-        str(cli.profile.client_secrets_path), cli.profile.privacy_policy_url,
+        "1", "", "", "20", "private", "gaming, thailand", "no", "no", "no", "yes",
     ])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
 
-    result = cli.app.run(["profile", "setup"])
+    result = cli.app.run([
+        "profile", "setup", "--client-secrets", str(cli.profile.client_secrets_path)
+    ])
 
     assert result == 0
     created = cli.profile_store.save.call_args.args[0]
     assert created.asset_rights_confirmed is True
     assert created.tags == ("gaming", "thailand")
-    assert created.policy_version_accepted is None
 
 
 def test_dry_run_uses_no_oauth(cli):
@@ -441,7 +383,7 @@ def test_dry_run_uses_no_oauth(cli):
 def test_profile_show_never_displays_client_json_contents(cli, capsys):
     assert cli.app.run(["profile", "show"]) == 0
     output = capsys.readouterr().out
-    assert "mfk110-test-upload" not in output
+    assert "owner-selected-upload-project" not in output
     assert "token" in output.casefold()
 
 

@@ -34,16 +34,12 @@ def test_api_snapshot_becomes_due_before_the_30_day_limit(store, candidate, meta
 
 def test_delete_account_data_removes_only_matching_channel(store, candidate, metadata, completed_and_pending_jobs):
     other_channel_job = store.get_or_create_job(candidate, "UC456", metadata)
-    store.record_policy_acceptance("UC123", "https://privacy.example.test/katy404", NOW, "2026-09-26")
-    store.record_policy_acceptance("UC456", "https://privacy.example.test/katy404", NOW, "2026-09-26")
 
     removed = store.delete_account_data("UC123")
 
     assert removed == 2
     assert store.list_jobs("UC123") == []
-    assert store.get_policy_acceptance("UC123") is None
     assert store.list_jobs("UC456") == [other_channel_job]
-    assert store.get_policy_acceptance("UC456") is not None
 
 
 def test_resumable_session_survives_store_reopen(tmp_path, candidate, metadata):

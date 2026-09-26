@@ -13,16 +13,16 @@
 - ผู้ใช้คนเดียว ใช้บน Windows ภายในเครื่อง `D:\agent-upload-social`
 - หน้า local เปิดอัตโนมัติเฉพาะเมื่อ `CredentialStore.load()` ไม่พบ credential; ถ้ามี credential ให้ flow เดิม refresh ตามปกติ
 - หน้า local เป็นหน้าสถานะ ไม่ใช่แบบฟอร์มรับรหัสผ่าน และไม่แสดง access/refresh token
-- Google เป็นผู้แสดงหน้าลงชื่อเข้าใช้และ consent เอง ใช้ OAuth Desktop client ของโปรเจกต์ใหม่ที่ `project_id` ขึ้นต้น `mfk110`
+- Google เป็นผู้แสดงหน้าลงชื่อเข้าใช้และ consent เอง ใช้ OAuth Desktop client ที่เจ้าของเลือกจาก Google Cloud
 - ใช้ scope เดิมเท่านั้น: `youtube.upload` และ `youtube.readonly`
 - บันทึก OAuth credential ใน Windows Credential Manager ตาม implementation ปัจจุบัน; ห้ามเขียน token ลงไฟล์, log, URL หรือ HTML
-- ตรวจ policy/configuration ก่อนเปิด browser เหมือน flow ปัจจุบัน; ใช้โฟลเดอร์และ channel ที่ผู้ใช้ระบุเท่านั้น
+- ตรวจ configuration ก่อนเปิด browser; ใช้โฟลเดอร์และ channel ที่ผู้ใช้ระบุเท่านั้น
 - หาก consent ถูกปฏิเสธ, OAuth ล้มเหลว, เก็บ credential ไม่สำเร็จ, หรือไม่พบ channel เป้าหมายที่ตรงกัน ให้หยุดก่อนส่งวิดีโอ
 - ไม่เปลี่ยนข้อกำหนด Private pilot และการอนุมัติแยกก่อน batch เต็ม
 
 ## สถานะปัจจุบัน
 
-`CliApp._upload` ตรวจโปรไฟล์และ policy ก่อนอ่าน credential จากนั้นเรียก `OAuthService.authorize` เมื่อไม่มี credential. `authorize_desktop` ตรวจรูปแบบ Desktop client และ prefix `mfk110`, เปิด `InstalledAppFlow.run_local_server`, และบันทึก credential ผ่าน `CredentialStore` ไปยัง Windows Credential Manager. หาก credential ที่มีอยู่ refresh แล้วถูก Google ปฏิเสธ flow ปัจจุบันจะหยุดและล้างข้อมูลตามเดิม; คำสั่ง upload ครั้งใหม่จะพบว่าไม่มี credential และเปิด local page. หลัง OAuth โปรแกรมเรียก YouTube API และ runner ตรวจ ownership/match ของ channel ก่อนเริ่ม upload
+`CliApp._upload` ตรวจโปรไฟล์ก่อนอ่าน credential จากนั้นเรียก `OAuthService.authorize` เมื่อไม่มี credential. `authorize_desktop` ตรวจรูปแบบ Desktop client, เปิด `InstalledAppFlow.run_local_server`, และบันทึก credential ผ่าน `CredentialStore` ไปยัง Windows Credential Manager. หาก credential ที่มีอยู่ refresh แล้วถูก Google ปฏิเสธ flow ปัจจุบันจะหยุดและล้างข้อมูลตามเดิม; คำสั่ง upload ครั้งใหม่จะพบว่าไม่มี credential และเปิด local page. หลัง OAuth โปรแกรมเรียก YouTube API และ runner ตรวจ ownership/match ของ channel ก่อนเริ่ม upload
 
 จุดที่ขาดคือหน้า local ของโปรแกรมสำหรับบอกสถานะขณะรอผู้ใช้ทำ Google OAuth. ข้อเสนอนี้เพิ่มเฉพาะ status surface โดยคง flow, scopes, credential backend, channel verification และ upload gates เดิม
 
@@ -53,12 +53,12 @@
 - ใช้ status endpoint แบบ read-only; response เป็น enum และข้อความคงที่ที่ allowlist ไว้ ไม่ส่ง raw exception, OAuth URL, response body หรือ credential
 - ใช้ route/session identifier สุ่มต่อการทำงานหนึ่งครั้ง และป้องกันไม่ให้หน้าอื่นอ่านสถานะของ session โดยเดา URL ได้
 - ใส่ security headers ที่เหมาะสมกับหน้า static (เช่น CSP แบบไม่มี external source และ `Cache-Control: no-store`)
-- คงการตรวจ OAuth client prefix, policy acceptance, profile validity, privacy gate และ pilot gate ที่มีอยู่
+- คงการตรวจ Desktop OAuth client, profile validity, privacy gate และ pilot gate ที่มีอยู่ โดยไม่บังคับ project ID prefix
 - การ consent ยังคงเป็นการกระทำของผู้ใช้ในหน้า Google; ตัวโปรแกรมไม่ยอมรับ consent แทนเจ้าของ
 
 ## การจัดการข้อผิดพลาด
 
-- config หรือ policy ยังไม่พร้อม: แสดงข้อความใน CLI ตามเดิมและไม่เปิด local page หรือ Google OAuth
+- OAuth configuration ยังไม่พร้อม: แสดงข้อความใน CLI และไม่เปิด local page หรือ Google OAuth
 - Google OAuth ถูกปฏิเสธ/ล้มเหลว/หมดเวลา: สถานะเป็น `stopped`, ไม่เริ่ม upload และไม่บันทึก credential ที่ไม่สมบูรณ์
 - Windows Credential Manager ใช้ไม่ได้: แสดงข้อความทั่วไปในหน้าและ CLI; ไม่ fallback ไปเก็บ token แบบ plaintext
 - บัญชีไม่มี channel เป้าหมายหรือชื่อกำกวม: CLI หยุดก่อน upload และใช้กติกาจับคู่ชื่อ/handle/ID เดิม หาก OAuth consent สำเร็จแล้ว credential ยังคงอยู่ใน Credential Manager เพราะเป็นสิทธิ์ของบัญชี Google; CLI แจ้งว่าช่องเป้าหมายไม่ตรงโดยไม่แสดง token
@@ -79,4 +79,4 @@
 - เว็บที่เผยแพร่บนอินเทอร์เน็ตหรือรับการ login จากเครื่องอื่น
 - แบบฟอร์มที่รับ Google password, OTP หรือแสดง/ดาวน์โหลด token
 - dashboard จัดการคลิป, browser automation เพื่อกด consent แทนผู้ใช้, หรือการอัปโหลดอัตโนมัติหลังผู้ใช้ยังไม่ได้สั่ง
-- เปลี่ยน OAuth scopes, Credential Manager backend, policy gate, channel ownership rules, หรือ upload/retry/pilot logic
+- เปลี่ยน OAuth scopes, Credential Manager backend, channel ownership rules, หรือ upload/retry/pilot logic

@@ -1,104 +1,156 @@
-# คู่มือติดตั้งครั้งแรกบน Windows
+# ติดตั้งโปรเจกต์บนเครื่องใหม่หลัง `git clone`
 
-ตั้งค่าทีละขั้นก่อนเรียก YouTube API ใช้บัญชี Google ที่เป็นเจ้าของหรือมีสิทธิ์จัดการช่อง Katy404 การใช้ project ID `mfk110...` เป็นเงื่อนไขของโปรแกรมเพื่อกัน OAuth JSON เก่าผิดโปรเจกต์
+คู่มือนี้ครอบคลุมการติดตั้งบน Windows ตั้งแต่ clone repo จนถึงการเตรียม OAuth และโปรไฟล์ช่อง การติดตั้งหรือ OAuth ไม่ได้สั่งอัปโหลดวิดีโอ
 
-## 1. สร้าง Google Cloud Upload Project
+## อะไรอยู่ใน Git และอะไรต้องเตรียมเอง
 
-1. เปิด [Google Cloud Console](https://console.cloud.google.com/) ด้วยบัญชีเจ้าของ แล้วสร้าง project ใหม่ เช่น `mfk110-katy404-upload-<suffix>` ชื่อและ ID ต้องไม่ซ้ำกับผู้ใช้อื่น; ตั้ง project ID ให้ขึ้นต้นด้วย `mfk110` ตั้งแต่สร้าง เพราะ ID เปลี่ยนภายหลังไม่ได้
-2. เลือก project ใหม่และเปิด **APIs & Services → Library** แล้ว enable **YouTube Data API v3**
-3. กรอกข้อมูลผู้พัฒนา/หน้าความยินยอมตามที่ Console ขอ ตั้งค่า audience ให้เหมาะกับบัญชี Google เจ้าของ ใช้ `External` หากบัญชีอยู่นอก Google Workspace organization ของ project
-4. หาก Console หรือ YouTube API audit ถามกลุ่มผู้ใช้ของ API client ให้ระบุขอบเขตที่อนุมัติไว้ว่าตัวโปรแกรมนี้ใช้โดยเจ้าของ/ผู้ดูแลช่อง ไม่ได้ออกแบบมาให้เด็กใช้โดยตรง อย่าสับสนกับ audience `External/Internal` หรือคำประกาศ Made for Kids ของวิดีโอ ซึ่งเป็นคนละค่าและต้องตอบแยกกัน หากเปลี่ยนกลุ่มผู้ใช้ในอนาคตให้ทบทวนคำตอบก่อนใช้ API ต่อ
+เมื่อ clone repo จะได้ source code, คู่มือ และ preset ช่องใน `profile.json` รวมถึงการตั้งค่าที่เจ้าของบันทึกไว้ เช่น description, tags, category และ `made_for_kids: false` ไฟล์ต่อไปนี้ถูกกันออกจาก Git และจะไม่มากับ clone:
 
-ค่า `mfk110` เป็นเงื่อนไขตรวจในโปรแกรมนี้ ไม่ใช่รูปแบบ project ID ที่ Google สงวนให้
+- `client_secrets.json`: OAuth Desktop JSON ที่เจ้าของดาวน์โหลดจาก Google Cloud
+- `token_<account>.json`: OAuth credential ของแต่ละบัญชี Google
+- `state.sqlite3`: ประวัติงานและ hash ที่ใช้ป้องกันการส่งคลิปซ้ำ
+- `.venv`: Python environment ของเครื่องเดิม
 
-## 2. ตั้ง OAuth Desktop client ใหม่
+ดังนั้น clone มี source และ preset แต่ยังไม่มี credentials หรือประวัติการอัปโหลด ต้องสร้าง virtual environment ใหม่ วาง OAuth JSON ลงในโฟลเดอร์โปรเจกต์ และทำ OAuth บนเครื่องนั้นเอง อย่าส่ง credentials หรือ token ขึ้น Git
 
-1. ทำ privacy policy ใน [ฉบับร่าง](privacy-policy.md) ให้พร้อมก่อน: ใส่ช่องทางติดต่อจริง, เผยแพร่บน URL HTTPS ที่ทุกคนเปิดอ่านได้ และแก้ placeholder ใน [terms](terms-of-use.md) ให้ครบ
-2. ใน OAuth consent screen ให้ลงทะเบียนบัญชีเจ้าของเป็น test user หากสถานะ app เป็น **Testing**
-3. สร้าง OAuth client แบบ **Desktop app** แล้วดาวน์โหลด JSON ใหม่
-4. เก็บไฟล์ไว้ใน `%LOCALAPPDATA%\Katy404\YouTubeUploader\client_secrets.json` ไม่เก็บใน repo, `D:\agent-upload-social\`, โฟลเดอร์ Google Drive, chat หรือ ticket
-5. อย่าใช้ `D:\agent-upload-social\client_secrets.json` ไฟล์เดิมกับ uploader นี้: project ID ของไฟล์เดิมไม่ตรง `mfk110` และตัวตรวจจะปฏิเสธตั้งแต่ก่อน OAuth
+`profile.json` ที่ commit ไว้ใช้ path `client_secrets.json` แบบ relative กับ root ของโปรเจกต์ รันคำสั่งจาก root ตามตัวอย่างด้านล่างเพื่อให้ path นี้ชี้ไปยังไฟล์ใน clone ปัจจุบัน
 
-แอปขอ OAuth scope สำหรับ `youtube.upload` และ `youtube.readonly` เพื่ออัปโหลดวิดีโอและตรวจช่อง/สถานะวิดีโอเท่าที่จำเป็น ในการอนุญาตครั้งแรก browser จะแสดงบัญชีที่จะเชื่อมต่อ ให้เลือกบัญชีเจ้าของ Katy404 และอ่าน scope ที่ Google แสดงก่อนกดยินยอม
+## 1. Clone repo
 
-การยืนยัน OAuth ของ Google กับการตรวจ YouTube API Services (API compliance audit) เป็นคนละขั้นตอน หากคง app ไว้ใน **Testing**, การอนุญาต scope อื่นนอกเหนือจาก basic profile อาจหมดอายุ 7 วันหลังยินยอม รวมถึง refresh token; ต้อง authorize ใหม่ตามที่ Console กำหนด หากจะเผยแพร่ app หรือ verify scopes ให้ทำขั้นตอนที่ Console ขอแยกจาก API audit
+ติดตั้ง Git และ Python 3.13 หรือ 3.14 ก่อน จาก PowerShell ไปยังโฟลเดอร์ที่ต้องการเก็บโปรเจกต์ แล้วรัน:
 
-## 3. ติดตั้งตัวโปรแกรมและ ffprobe
+```powershell
+git clone git@github.com:pong34811/agent-upload-social.git
+Set-Location .\agent-upload-social
+```
 
-ติดตั้ง Python 3.13 หรือ 3.14 และ FFmpeg ที่มี `ffprobe.exe` จากแหล่งที่เชื่อถือได้ จาก PowerShell ที่ root ของ repo:
+ถ้าใช้ HTTPS แทน SSH:
+
+```powershell
+git clone https://github.com/pong34811/agent-upload-social.git
+Set-Location .\agent-upload-social
+```
+
+ยืนยันว่าอยู่ที่ root ของ repo และ Python launcher มองเห็น Python รุ่นที่รองรับ:
+
+```powershell
+git status --short --branch
+py -0p
+```
+
+## 2. สร้าง environment และติดตั้งโปรแกรม
+
+ใช้ Python 3.13:
 
 ```powershell
 py -3.13 -m venv .venv
-.venv\Scripts\python.exe -m pip install -e ".[test]"
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e .
+```
+
+หากต้องการรันชุดทดสอบภายหลัง ให้ติดตั้ง optional dependency เพิ่มด้วย `.\.venv\Scripts\python.exe -m pip install -e ".[test]"`
+
+ติดตั้ง FFmpeg ที่มี `ffprobe.exe` และเพิ่มตำแหน่ง executable ใน `PATH` จากนั้นเปิด PowerShell ใหม่และตรวจ:
+
+```powershell
 ffprobe -version
-kt404-youtube --help
+.\.venv\Scripts\kt404-youtube.exe --help
 ```
 
-แอปเก็บ `profile.json` และ `state.sqlite3` ไว้ที่ `%LOCALAPPDATA%\Katy404\YouTubeUploader\`; OAuth token ช่อง waritnan34811 อยู่ใน `token_waritnan34811.json` ที่โฟลเดอร์โปรเจกต์ และ `.gitignore` กันไฟล์นี้ไม่ให้เข้า Git
+ถ้า `ffprobe` ไม่พบ ให้ติดตั้ง/ตั้ง `PATH` ให้ถูกก่อนตรวจหรืออัปโหลดคลิป
 
-## 4. สร้าง profile และ consent
+## 3. วาง OAuth Desktop JSON ใน clone
+
+ดาวน์โหลด Desktop OAuth JSON จาก Google Cloud project ที่เจ้าของเลือก แล้วคัดลอกไฟล์ไว้ที่:
+
+```text
+<โฟลเดอร์ที่ clone>\agent-upload-social\client_secrets.json
+```
+
+ตัวอย่างเมื่อ clone ไว้ใน Desktop:
+
+```text
+C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
+```
+
+ตรวจว่าไฟล์เป็น JSON แบบ Desktop/Installed (`installed` object มี `client_id`, `client_secret` และ `project_id`) อย่าแก้ค่าภายในไฟล์เอง ไฟล์นี้ถูก `.gitignore` กันไว้อยู่แล้ว
+
+## 4. สร้าง OAuth credential
+
+ใน preset ปัจจุบัน `profile.json` ระบุ OAuth account label เป็น `lamaixcom3481` จึงต้องใช้ label เดียวกันเพื่อให้ uploader เจอ credential นั้น:
 
 ```powershell
-kt404-youtube profile setup
-kt404-youtube profile show
-kt404-youtube profile accept-policy
+.\.venv\Scripts\kt404-youtube.exe auth token --client-secrets ".\client_secrets.json" --account lamaixcom3481
 ```
 
-กรอกชื่อ/handle ช่อง, คำอธิบาย, Shorts suffix, category ID, tags, privacy และ declarations ตามข้อเท็จจริงของช่องและชุดไฟล์
+ครั้งแรกโปรแกรมจะเปิด Google OAuth ใน browser ให้เจ้าของเลือกบัญชีและยินยอม scope ที่แสดง หลังสำเร็จจะสร้าง `token_lamaixcom3481.json` ใน root ของโปรเจกต์ คำสั่งนี้ไม่เรียก YouTube API และไม่อัปโหลดวิดีโอ ถ้าบัญชีนี้มี credential ที่ยังใช้ได้ โปรแกรมจะนำกลับมาใช้โดยไม่เปิด browser ซ้ำ
 
-- **Privacy:** เลือก `private`, `unlisted`, หรือ `public` ให้ชัด อย่าให้ agent เดา; pilot บังคับ Private
-- **Category / tags / description:** ใช้ metadata ที่เจ้าของยืนยัน ชื่อวิดีโอมาจากชื่อไฟล์ตามกติกาในโปรแกรม
-- **Made for Kids:** ตอบตามกลุ่มเป้าหมายที่ตั้งใจ ไม่ใช่ตามการมีเกมหรือภาพการ์ตูนอย่างเดียว
-- **Synthetic media:** ตอบตามเนื้อหาจริง; โปรแกรมไม่วิเคราะห์เพื่อเดาแทนเจ้าของ
-- **Official Artist Channel:** ตอบตามสถานะจริงของช่อง
-- **Asset rights:** ยืนยันเฉพาะเมื่อมีสิทธิ์ใช้เสียง, ภาพ, game footage และ overlay ในคลิปทั้งชุด; หากยังไม่ยืนยันให้ตั้งเป็น not-confirmed และอย่าอัปโหลดจนกว่าจะยืนยันได้
-
-`profile setup` ไม่ยอมรับ policy หรือเปิด browser ให้เอง ตรวจ URL/ข้อความที่แสดงใน `profile accept-policy`, อ่าน privacy policy และ [YouTube Terms of Service](https://www.youtube.com/t/terms), แล้วพิมพ์ `ยอมรับ` ด้วยตนเอง
-
-### หน้าเข้าสู่ระบบในเครื่อง
-
-เมื่อเจ้าของสั่ง `upload` หลัง profile และ policy ผ่านแล้ว โปรแกรมจะเปิดหน้า local เฉพาะกรณีที่ยังไม่มี OAuth credential ใน `token_waritnan34811.json` หน้าแสดง `waiting`, `connected` หรือ `stopped` และเปิด Google OAuth Desktop flow ให้ลงชื่อเข้าใช้/ยินยอมบนหน้า Google
-
-หากต้องการสร้าง/ตรวจ credential แยกจากการอัปโหลด ให้ใช้คำสั่งนี้หลัง profile และ policy ผ่าน:
+ดูเฉพาะชื่อบัญชีที่มี credential โดยไม่แสดง token ได้ด้วย:
 
 ```powershell
-kt404-youtube auth login --channel "Katy404"
+.\.venv\Scripts\kt404-youtube.exe auth accounts
 ```
 
-คำสั่งนี้ใช้ local status page เมื่อยังไม่มี credential, ตรวจว่าบัญชีเข้าถึงช่องที่ระบุ และหยุดหลังยืนยันช่องโดยไม่อัปโหลดวิดีโอ
-
-หน้า local ใช้ดูสถานะเท่านั้น ไม่รับรหัสผ่านหรือ OTP และไม่แสดง access/refresh token เมื่อ credential บันทึกใน `token_waritnan34811.json` สำเร็จ หน้าแสดง `connected`; จากนั้น CLI ยังต้องตรวจ channel name/handle/ID ที่สั่ง หากบัญชีไม่เข้าถึงช่องเป้าหมายหรือชื่อกำกวม โปรแกรมหยุดก่อนส่งวิดีโอ โดย credential ที่เชื่อมสำเร็จยังเก็บไว้ตามปกติ หากยกเลิก, ใช้เวลาเกิน 10 นาที, หรือ OAuth/การบันทึก credential ล้มเหลว หน้านี้แสดง `stopped` และคำสั่ง upload รอบนั้นหยุด
-
-ถ้ามี credential อยู่แล้ว หน้า local จะไม่เปิดและโปรแกรมใช้ flow refresh เดิมตามปกติ การตรวจ `dry-run` เป็น offline และไม่เปิด OAuth หรือหน้านี้
-
-## 5. แยก OAuth verification ออกจาก YouTube API audit
-
-Google OAuth verification ใช้กับ consent screen/scopes ของ OAuth app ส่วน YouTube API compliance audit เป็นการตรวจการใช้งาน YouTube API และใช้พิจารณา quota extension หรือกรณีที่ YouTube ขอ audit; การมีอย่างใดอย่างหนึ่งไม่ได้แปลว่าอีกอย่างผ่าน
-
-โปรแกรมรุ่นนี้เพิ่ม app-specific safety gate: **Unlisted/Public ถูกปิดจนกว่าเจ้าของจะตรวจผล audit และรันคำสั่งนี้เอง**:
+หากเชื่อมบัญชี Google อื่น ให้ตั้ง account label ใหม่และเลือก label เดียวกันตอนตั้งโปรไฟล์ เช่น:
 
 ```powershell
-kt404-youtube profile set-api-audit-status passed
+.\.venv\Scripts\kt404-youtube.exe auth token --client-secrets ".\client_secrets.json" --account channel2
 ```
 
-ห้ามใช้คำสั่งนี้เพียงเพราะสร้าง Google Cloud project, เปิด API, หรือผ่าน OAuth verification แล้ว การเปลี่ยน privacy ทำได้ด้วย `profile set-privacy private|unlisted|public`
+OAuth JSON และ token เป็นข้อมูลเฉพาะเครื่องและไม่ถูก clone จาก Git
 
-## 6. ตรวจ quota ก่อน batch เต็ม
+## 5. ตรวจ preset และกรอกค่าที่ยังขาด
 
-ณ วันที่เขียนเอกสาร quota calculator แสดง `videos.insert` ใน bucket แยก จำกัดเริ่มต้น 100 calls/day โดยแต่ละ call คิด 1 quota; `thumbnails.set` คิดประมาณ 50 units ต่อ call ใน bucket ของ endpoint อื่น ดังนั้น 24 คลิปนี้ต้องใช้ 24 `videos.insert` calls และประมาณ 1,200 units สำหรับ JPG 24 ภาพ รวมคำขออ่านช่อง/refresh เพิ่มเล็กน้อยและ retries ที่อาจต้องเปิด session ใหม่ ตรวจหน้า **Google Cloud Console → YouTube Data API → Quotas** ของ project จริงก่อน batch; quota อาจถูกปรับได้
+แสดง preset ปัจจุบันโดยไม่แสดง OAuth token:
 
-การขอ quota เพิ่มอาจต้องยื่น [YouTube API Services Audit and Quota Extension Form](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits) และผ่าน audit ตามเงื่อนไขของ Google ไม่ควรตั้งสถานะ audit ใน profile จนกว่าจะมีผลอนุมัติจริง
+```powershell
+.\.venv\Scripts\kt404-youtube.exe profile show
+```
 
-## 7. ตรวจและปล่อยคลิปนำร่อง
+โปรไฟล์ที่อยู่ใน repo มี preset ของช่อง `waritna34811` พร้อม description, tags, category `22` และ Made for Kids = `no` ตามที่เจ้าของระบุ ค่า privacy, synthetic media, Official Artist Channel และการรับรองสิทธิ์ assets ต้องยืนยันตามข้อเท็จจริงก่อนใช้อัปโหลด; ห้ามเดาหรือรับรองแทนเจ้าของ
 
-รันคำสั่ง `dry-run` และตรวจชื่อไฟล์, JPG คู่กัน, metadata และ privacy ก่อน จากนั้นสั่ง Private pilot หนึ่งคลิป ดู URL/visibility ที่ CLI รายงาน แล้วตรวจวิดีโอและ thumbnail ใน YouTube Studio หากต้องการ batch เต็ม เจ้าของต้องอนุมัติ video ID ที่ตรวจแล้วด้วย `profile approve-pilot --video-id ID` และส่งคำสั่ง batch เต็มแยกอีกครั้ง ขั้นตอนทั้งหมดพร้อม path อยู่ใน [คู่มือปฏิบัติงาน](operations.md)
+ถ้าต้องกรอก/ยืนยันข้อมูลเหล่านี้ผ่าน CLI ให้รันคำสั่งตั้งค่าใหม่ คำสั่งนี้เรียก YouTube API เพื่อแสดงช่องที่บัญชี OAuth จัดการได้ แต่ไม่อัปโหลดคลิป และจะสำรอง `profile.json` เดิมก่อนแทนที่:
 
-## แหล่งอ้างอิงทางการ
+```powershell
+.\.venv\Scripts\kt404-youtube.exe profile setup --client-secrets ".\client_secrets.json" --oauth-account lamaixcom3481 --replace-existing
+```
 
-- [Manage app audience and Testing status](https://support.google.com/cloud/answer/15549945?hl=en)
-- [YouTube API quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost)
-- [YouTube API quota/compliance audits](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)
-- [YouTube Developer Policies](https://developers.google.com/youtube/terms/developer-policies)
+เลือกช่องที่ถูกต้อง แล้วกรอก metadata และ declarations ตามความจริง หากยังไม่พร้อมยืนยันสิทธิ์ audio, ภาพ, game footage หรือ overlay ให้ตอบว่ายังไม่ยืนยันและอย่าอัปโหลด ค่า Unlisted/Public ต้องอาศัยสถานะ YouTube API audit ที่ผ่านจริง; อย่าตั้งสถานะ audit จากการผ่าน OAuth เพียงอย่างเดียว
+
+ตรวจค่าที่บันทึกไว้อีกครั้งด้วย `profile show`. สำหรับการแก้เฉพาะค่า privacy หรือสิทธิ์ assets มีคำสั่ง:
+
+```powershell
+.\.venv\Scripts\kt404-youtube.exe profile set-privacy private
+.\.venv\Scripts\kt404-youtube.exe profile set-asset-rights-status confirmed
+```
+
+ใช้คำสั่งยืนยันสิทธิ์เฉพาะเมื่อมีสิทธิ์ครบจริงเท่านั้น
+
+## 6. ตรวจคลิปก่อนสั่งอัปโหลด
+
+ติดตั้ง/เชื่อม Google Drive หรือคัดลอกคลิปกับ JPG ไว้ในโฟลเดอร์ที่ต้องการ ตรวจชื่อและไฟล์คู่ตามรูปแบบที่โปรแกรมรองรับ ดูรายละเอียดใน [คู่มือปฏิบัติงาน](operations.md). จากนั้นแทน `<โฟลเดอร์คลิป>` ด้วย path จริง:
+
+```powershell
+.\.venv\Scripts\kt404-youtube.exe dry-run --folder "<โฟลเดอร์คลิป>" --channel "waritna34811"
+```
+
+`dry-run` เป็นการตรวจไฟล์แบบ offline และอ่านเฉพาะไฟล์ระดับบนสุดของโฟลเดอร์ที่ระบุ ตรวจจำนวนคลิป ชื่อไฟล์ วิดีโอ/ภาพปกคู่กัน และรายการที่ต้องแก้ให้เรียบร้อยก่อนส่งคำสั่ง `upload`
+
+การติดตั้ง, clone, สร้าง OAuth หรือ dry-run ไม่ได้อัปโหลดคลิป การอัปโหลดต้องเป็นคำสั่งแยกที่เจ้าของสั่งอย่างชัดเจน หากยังไม่มี pilot ที่เจ้าของอนุมัติ โปรแกรมเริ่มด้วย Private pilot หนึ่งคลิป หลังเจ้าของตรวจใน YouTube Studio และอนุมัติ video ID แล้ว จึงสั่ง batch เต็มแยกอีกครั้ง ดูลำดับเต็มใน [คู่มือปฏิบัติงาน](operations.md)
+
+## ที่เก็บข้อมูลในเครื่อง
+
+- `profile.json`: preset และค่าประจำช่องที่อยู่ใน Git
+- `client_secrets.json`: OAuth Desktop JSON เฉพาะเครื่อง; ถูก ignore
+- `token_<account>.json`: OAuth credential เฉพาะเครื่อง; ถูก ignore
+- `state.sqlite3`: job state เฉพาะเครื่อง; ถูก ignore และจะถูกสร้างใหม่เมื่อเริ่มทำงาน
+- `profile.json.backup-<timestamp>`: สำเนาโปรไฟล์ก่อนใช้ `profile setup --replace-existing`; ถูก ignore
+
+การ clone บนเครื่องใหม่ไม่ได้ย้าย token หรือฐานข้อมูล state มาด้วย หากต้องการย้ายประวัติ job/hash เดิม ให้คัดลอก `state.sqlite3` ด้วยวิธีที่เจ้าของควบคุมและปิดโปรแกรมก่อนคัดลอก โดยห้าม commit ไฟล์นี้
+
+## แหล่งอ้างอิง
+
+- [Google Cloud: OAuth consent screen และสถานะ Testing](https://support.google.com/cloud/answer/15549945?hl=en)
+- [YouTube Data API quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost)
+- [YouTube API compliance audit และ quota extension](https://developers.google.com/youtube/v3/guides/quota_and_compliance_audits)
 - [YouTube resumable upload protocol](https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol)
-- [YouTube video upload guide](https://developers.google.com/youtube/v3/guides/uploading_a_video)

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -27,13 +26,7 @@ class JobStateError(RuntimeError):
 
 
 def _default_db_path() -> Path:
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    if local_app_data:
-        return Path(local_app_data) / "Katy404" / "YouTubeUploader" / "state.sqlite3"
-    if os.name == "nt":
-        return Path.home() / "AppData" / "Local" / "Katy404" / "YouTubeUploader" / "state.sqlite3"
-    data_home = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return data_home / "Katy404" / "YouTubeUploader" / "state.sqlite3"
+    return Path(__file__).resolve().parents[2] / "state.sqlite3"
 
 
 def _parse_utc(value: datetime | str) -> datetime:
@@ -70,7 +63,7 @@ def _metadata_from_json(value: str) -> VideoMetadata:
 
 
 class JobStore:
-    """SQLite store outside synced folders; refresh or expire API data by day 30."""
+    """Project-local SQLite upload state; refresh or expire API data by day 30."""
 
     def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = Path(db_path) if db_path is not None else _default_db_path()
@@ -102,12 +95,6 @@ class JobStore:
                 );
                 CREATE INDEX IF NOT EXISTS jobs_channel_created ON jobs(channel_id, created_at, path);
                 CREATE INDEX IF NOT EXISTS jobs_api_refresh ON jobs(api_refreshed_at);
-                CREATE TABLE IF NOT EXISTS profile_acceptance (
-                    channel_id TEXT PRIMARY KEY,
-                    privacy_policy_url TEXT NOT NULL,
-                    accepted_at TEXT NOT NULL,
-                    policy_version TEXT NOT NULL
-                );
                 """
             )
 
@@ -356,31 +343,7 @@ class JobStore:
     def delete_account_data(self, channel_id: str) -> int:
         with self._connect() as connection:
             cursor = connection.execute("DELETE FROM jobs WHERE channel_id = ?", (channel_id,))
-            removed = cursor.rowcount
-            connection.execute("DELETE FROM profile_acceptance WHERE channel_id = ?", (channel_id,))
-            return removed
-
-    def record_policy_acceptance(
-        self, channel_id: str, privacy_policy_url: str, accepted_at: datetime | str, policy_version: str
-    ) -> None:
-        with self._connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO profile_acceptance(channel_id, privacy_policy_url, accepted_at, policy_version)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(channel_id) DO UPDATE SET privacy_policy_url = excluded.privacy_policy_url,
-                    accepted_at = excluded.accepted_at, policy_version = excluded.policy_version
-                """,
-                (channel_id, privacy_policy_url, _timestamp(accepted_at), policy_version),
-            )
-
-    def get_policy_acceptance(self, channel_id: str) -> dict[str, str] | None:
-        with self._connect() as connection:
-            row = connection.execute(
-                "SELECT privacy_policy_url, accepted_at, policy_version FROM profile_acceptance WHERE channel_id = ?",
-                (channel_id,),
-            ).fetchone()
-        return dict(row) if row is not None else None
+            return cursor.rowcount
 
     def _require_job(self, connection: sqlite3.Connection, job_id: str) -> sqlite3.Row:
         row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()

@@ -12,7 +12,7 @@ NOW = datetime(2026, 9, 26, tzinfo=timezone.utc)
 def valid_profile(tmp_path):
     secrets_path = tmp_path / "client_secrets.json"
     secrets_path.write_text(
-        '{"installed":{"project_id":"mfk110-test-upload"}}', encoding="utf-8"
+        '{"installed":{"project_id":"owner-selected-upload-project"}}', encoding="utf-8"
     )
     return UploadProfile(
         channel_alias="Katy404",
@@ -28,9 +28,6 @@ def valid_profile(tmp_path):
         is_official_artist_channel=False,
         asset_rights_confirmed=True,
         shorts_title_suffix=" #Shorts",
-        privacy_policy_url="https://privacy.example.test/katy404",
-        policy_accepted_at=NOW.isoformat().replace("+00:00", "Z"),
-        policy_version_accepted="2026-09-26",
         approved_pilot_video_id=None,
     )
 

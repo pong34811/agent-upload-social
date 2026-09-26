@@ -11,6 +11,7 @@ class UploadProfile:
 
     channel_alias: str
     client_secrets_path: Path | None = None
+    oauth_account_key: str = "owner"
     channel_id: str | None = None
     privacy_status: str = "private"
     api_audit_passed: bool = False
@@ -22,9 +23,6 @@ class UploadProfile:
     is_official_artist_channel: bool = False
     asset_rights_confirmed: bool | None = None
     shorts_title_suffix: str = " #Shorts"
-    privacy_policy_url: str | None = None
-    policy_accepted_at: str | None = None
-    policy_version_accepted: str | None = None
     approved_pilot_video_id: str | None = None
 
 
