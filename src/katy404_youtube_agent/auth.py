@@ -6,7 +6,7 @@ import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import keyring
 import requests
@@ -136,10 +136,17 @@ def _validate_desktop_client(client_secrets_path: Path) -> None:
         raise OAuthConfigurationError("Desktop OAuth project_id must start with mfk110")
 
 
-def authorize_desktop(client_secrets_path: Path, credential_store: CredentialStore) -> Credentials:
+def authorize_desktop(
+    client_secrets_path: Path,
+    credential_store: CredentialStore,
+    *,
+    on_authorization_started: Callable[[], None] | None = None,
+) -> Credentials:
     """Open the one-time local browser consent flow and save the grant securely."""
     _validate_desktop_client(client_secrets_path)
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), scopes=SCOPES)
+    if on_authorization_started is not None:
+        on_authorization_started()
     credentials = flow.run_local_server(port=0, access_type="offline", prompt="consent")
     credential_store.save(OWNER_ACCOUNT_KEY, credentials)
     return credentials

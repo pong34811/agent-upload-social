@@ -20,6 +20,7 @@ from .auth import (
     CredentialStoreError,
     resolve_channel,
 )
+from .local_oauth_status import LocalOAuthStatusPage
 from .models import BatchReport, UploadProfile
 from .profile import POLICY_VERSION, ProfileError, ProfileStore, validate_upload_profile
 from .runner import BatchRunner, PilotApprovalRequired
@@ -34,10 +35,41 @@ GOOGLE_SECURITY_URL = "https://security.google.com/settings/security/permissions
 class OAuthService:
     """Indirection point so command behavior can be exercised without OAuth/network access."""
 
+    def __init__(
+        self,
+        status_page_factory: Callable[[], LocalOAuthStatusPage] = LocalOAuthStatusPage,
+    ) -> None:
+        self._status_page_factory = status_page_factory
+
     def authorize(self, client_secrets_path: Path, credential_store: CredentialStore) -> Any:
         from .auth import authorize_desktop
 
-        return authorize_desktop(client_secrets_path, credential_store)
+        status_page: LocalOAuthStatusPage | None = None
+        page_started = False
+
+        def start_status_page() -> None:
+            nonlocal status_page, page_started
+            status_page = self._status_page_factory()
+            status_page.start()
+            page_started = True
+            status_page.set_state("waiting")
+
+        try:
+            credentials = authorize_desktop(
+                client_secrets_path,
+                credential_store,
+                on_authorization_started=start_status_page,
+            )
+            if page_started and status_page is not None:
+                status_page.set_state("connected")
+            return credentials
+        except Exception:
+            if page_started and status_page is not None:
+                status_page.set_state("stopped")
+            raise
+        finally:
+            if page_started and status_page is not None:
+                status_page.finish()
 
     def refresh(self, account_key: str, credential_store: CredentialStore, credentials: Any) -> Any:
         from .auth import refresh_credentials

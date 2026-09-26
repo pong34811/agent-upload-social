@@ -7,10 +7,29 @@ from unittest.mock import Mock
 import pytest
 
 from conftest import NOW
-from katy404_youtube_agent.auth import AuthorizationRevokedError, ChannelRef
-from katy404_youtube_agent.cli import CliApp
+from katy404_youtube_agent.auth import (
+    AuthorizationRevokedError,
+    ChannelRef,
+    ChannelResolutionError,
+)
+from katy404_youtube_agent.cli import CliApp, OAuthService
+from katy404_youtube_agent.local_oauth_status import LocalOAuthStatusPage
 from katy404_youtube_agent.models import ApiVideoSnapshot, BatchReport
 from katy404_youtube_agent.profile import POLICY_VERSION
+
+
+class RecordingOAuthStatusPage:
+    def __init__(self):
+        self.steps = []
+
+    def start(self):
+        self.steps.append("start")
+
+    def set_state(self, state):
+        self.steps.append(state)
+
+    def finish(self):
+        self.steps.append("finish")
 
 
 class CliHarness:
@@ -113,6 +132,147 @@ def test_upload_refuses_unaccepted_privacy_policy_before_oauth(cli_unaccepted_po
     assert cli.oauth.authorize.call_count == 0
     assert cli.credentials.load.call_count == 0
     assert cli.runner.upload.call_count == 0
+
+
+def test_missing_credential_authorizes_before_api_creation_and_upload(cli):
+    events = []
+    credential = SimpleNamespace(valid=True)
+    cli.credentials.load.side_effect = lambda _key: None
+    cli.oauth.authorize.side_effect = lambda *_args: (events.append("authorize"), credential)[1]
+    cli.oauth.build_api.side_effect = lambda *_args: (events.append("build_api"), cli.api)[1]
+    cli.runner.upload.side_effect = lambda *_args, **_kwargs: (
+        events.append("upload"), BatchReport([], 0, 0, 0, 0)
+    )[1]
+
+    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
+
+    assert result == 0
+    assert events == ["authorize", "build_api", "upload"]
+    cli.credentials.load.assert_called_once_with("owner")
+
+
+def test_existing_credential_skips_oauth(cli):
+    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
+
+    assert result == 0
+    cli.oauth.authorize.assert_not_called()
+    cli.oauth.build_api.assert_called_once()
+    cli.runner.upload.assert_called_once()
+
+
+def test_oauth_service_reports_success_in_page_states(monkeypatch):
+    page = RecordingOAuthStatusPage()
+    credential = object()
+
+    def authorize(_path, _store, *, on_authorization_started):
+        on_authorization_started()
+        return credential
+
+    monkeypatch.setattr("katy404_youtube_agent.auth.authorize_desktop", authorize)
+    service = OAuthService(status_page_factory=lambda: page)
+
+    result = service.authorize(Path("client.json"), object())
+
+    assert result is credential
+    assert page.steps == ["start", "waiting", "connected", "finish"]
+
+
+def test_oauth_service_marks_stopped_and_finishes_after_authorization_error(monkeypatch):
+    page = RecordingOAuthStatusPage()
+
+    def authorize(_path, _store, *, on_authorization_started):
+        on_authorization_started()
+        raise RuntimeError("private OAuth response body")
+
+    monkeypatch.setattr("katy404_youtube_agent.auth.authorize_desktop", authorize)
+    service = OAuthService(status_page_factory=lambda: page)
+
+    with pytest.raises(RuntimeError, match="private OAuth response body"):
+        service.authorize(Path("client.json"), object())
+
+    assert page.steps == ["start", "waiting", "stopped", "finish"]
+
+
+@pytest.mark.parametrize("browser_result", [False, "raise"])
+def test_oauth_page_open_failure_stops_before_google_api_or_upload(cli, monkeypatch, capsys, browser_result):
+    import katy404_youtube_agent.auth as auth
+
+    cli.credentials.load.side_effect = lambda _key: None
+    flow = Mock()
+    monkeypatch.setattr(auth.InstalledAppFlow, "from_client_secrets_file", lambda *_args, **_kwargs: flow)
+    pages = []
+
+    def browser_open(_url):
+        if browser_result == "raise":
+            raise RuntimeError("private browser details")
+        return browser_result
+
+    def page_factory():
+        page = LocalOAuthStatusPage(browser_open=browser_open)
+        pages.append(page)
+        return page
+
+    service = OAuthService(status_page_factory=page_factory)
+    service.build_api = Mock()
+    cli.app.oauth = service
+
+    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
+
+    assert result == 1
+    flow.run_local_server.assert_not_called()
+    service.build_api.assert_not_called()
+    cli.runner.upload.assert_not_called()
+    assert pages
+    assert "private browser details" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("failure_stage", ["google_consent", "credential_store"])
+def test_oauth_failure_stops_before_upload_and_hides_exception_body(cli, monkeypatch, capsys, failure_stage):
+    import katy404_youtube_agent.auth as auth
+
+    cli.credentials.load.side_effect = lambda _key: None
+    page = RecordingOAuthStatusPage()
+    service = OAuthService(status_page_factory=lambda: page)
+    service.build_api = Mock()
+    cli.app.oauth = service
+    flow = Mock()
+    secret_body = f"private {failure_stage} payload"
+    if failure_stage == "google_consent":
+        flow.run_local_server.side_effect = RuntimeError(secret_body)
+    else:
+        flow.run_local_server.return_value = SimpleNamespace(
+            to_json=Mock(return_value='{"token":"secret"}')
+        )
+        cli.credentials.save.side_effect = RuntimeError(secret_body)
+    monkeypatch.setattr(auth.InstalledAppFlow, "from_client_secrets_file", lambda *_args, **_kwargs: flow)
+
+    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
+
+    assert result == 1
+    assert page.steps == ["start", "waiting", "stopped", "finish"]
+    service.build_api.assert_not_called()
+    cli.runner.upload.assert_not_called()
+    output = capsys.readouterr()
+    assert secret_body not in output.out
+    assert secret_body not in output.err
+
+
+def test_channel_mismatch_after_authorization_keeps_stored_credential(cli):
+    stored = {"owner": None}
+    credential = SimpleNamespace(valid=True)
+    cli.credentials.load.side_effect = lambda key: stored[key]
+
+    def authorize(_path, _store):
+        stored["owner"] = credential
+        return credential
+
+    cli.oauth.authorize.side_effect = authorize
+    cli.runner.upload.side_effect = ChannelResolutionError("No owned channel matches the request")
+
+    result = cli.app.run(["upload", "--folder", "media", "--channel", "@not-my-channel"])
+
+    assert result == 2
+    assert cli.credentials.load("owner") is credential
 
 
 def test_first_upload_runs_private_pilot_until_user_review(cli_unapproved_pilot):

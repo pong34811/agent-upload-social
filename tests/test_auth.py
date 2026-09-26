@@ -101,16 +101,55 @@ def test_authorize_uses_desktop_flow_and_saves_owner_credential(tmp_path, fake_k
     assert store.load("owner").refresh_token == "refresh-value"
 
 
+def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_path, fake_keyring, monkeypatch):
+    secrets_path = tmp_path / "client_secrets.json"
+    secrets_path.write_text(
+        '{"installed":{"project_id":"mfk110-upload","client_id":"client-id"}}',
+        encoding="utf-8",
+    )
+    events = []
+    flow = Mock()
+    flow.run_local_server.side_effect = lambda **_kwargs: (events.append("google"), fake_credentials())[1]
+
+    def make_flow(*_args, **_kwargs):
+        events.append("flow")
+        return flow
+
+    monkeypatch.setattr(
+        "katy404_youtube_agent.auth.InstalledAppFlow.from_client_secrets_file",
+        make_flow,
+    )
+    store = CredentialStore(fake_keyring)
+    original_save = store.save
+
+    def save(account_key, credentials):
+        events.append("stored")
+        original_save(account_key, credentials)
+
+    store.save = save
+
+    authorize_desktop(secrets_path, store, on_authorization_started=lambda: events.append("page"))
+
+    assert events == ["flow", "page", "google", "stored"]
+    flow.run_local_server.assert_called_once_with(port=0, access_type="offline", prompt="consent")
+
+
 def test_authorize_rejects_old_upload_project_before_browser_consent(tmp_path, fake_keyring, monkeypatch):
     secrets_path = tmp_path / "client_secrets.json"
     secrets_path.write_text('{"installed":{"project_id":"old-project"}}', encoding="utf-8")
     flow_factory = Mock()
     monkeypatch.setattr("katy404_youtube_agent.auth.InstalledAppFlow.from_client_secrets_file", flow_factory)
 
+    callback_calls = []
     with pytest.raises(ValueError, match="mfk110"):
-        authorize_desktop(secrets_path, CredentialStore(fake_keyring))
+        authorize_desktop(
+            secrets_path,
+            CredentialStore(fake_keyring),
+            on_authorization_started=lambda: callback_calls.append(True),
+        )
 
     flow_factory.assert_not_called()
+    assert callback_calls == []
 
 
 def test_revoke_sends_token_then_deletes_local_credential(fake_keyring, monkeypatch):
