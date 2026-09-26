@@ -391,6 +391,8 @@ class CliApp:
             print("โปรไฟล์ยังไม่มี channel ID ที่ยืนยันแล้ว", file=sys.stderr)
             return 2
         validate_upload_profile(profile, requested_privacy="private")
+        now = datetime.now(timezone.utc)
+        expired_sessions = self.store.expire_stale_upload_sessions(now)
         credential_store = self._get_credential_store()
         credentials = credential_store.load(OWNER_ACCOUNT_KEY)
         if credentials is None:
@@ -407,7 +409,6 @@ class CliApp:
                 print("บัญชีนี้ไม่มีสิทธิ์จัดการช่องที่บันทึกไว้แล้ว; ลบข้อมูล API ในเครื่องและหยุด maintenance", file=sys.stderr)
                 return 1
 
-            now = datetime.now(timezone.utc)
             due = [job for job in self.store.list_due_api_records(now) if job.channel_id == profile.channel_id and job.video_id]
             snapshots = api.refresh_videos([job.video_id for job in due if job.video_id]) if due else []
             snapshots_by_id = {snapshot.video_id: snapshot for snapshot in snapshots}
@@ -430,7 +431,11 @@ class CliApp:
                 self.store.refresh_api_record(job.id, now, fields)
                 refreshed_count += 1
             purged_count = self.store.purge_expired_api_records(now)
-            print(f"ปรับปรุงข้อมูล API {refreshed_count} รายการ; ลบข้อมูลที่หมดอายุ {purged_count} รายการ")
+            print(
+                f"ปรับปรุงข้อมูล API {refreshed_count} รายการ; "
+                f"ลบข้อมูล API ที่หมดอายุ {purged_count} รายการ; "
+                f"ล้าง resumable session ที่ไม่ใช้งาน {expired_sessions} รายการ"
+            )
             return 0
         except AuthorizationRevokedError as exc:
             self.store.delete_account_data(profile.channel_id)

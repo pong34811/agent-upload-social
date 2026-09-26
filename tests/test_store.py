@@ -61,6 +61,36 @@ def test_resumable_session_survives_store_reopen(tmp_path, candidate, metadata):
     assert saved.offset == 1234
 
 
+def test_stale_resumable_session_uri_is_removed_after_30_days(store, candidate, metadata):
+    stale = store.get_or_create_job(candidate, "UC123", metadata)
+    fresh_candidate = replace(
+        candidate,
+        path=candidate.path.with_name("fresh.mov"),
+        thumbnail_path=candidate.thumbnail_path.with_name("fresh.jpg"),
+        sha256="c" * 64,
+    )
+    fresh = store.get_or_create_job(fresh_candidate, "UC123", metadata)
+    for job in (stale, fresh):
+        store.mark_validated(job.id)
+        store.set_upload_session(job.id, f"https://upload.example.test/{job.id}", 4096)
+    with store._connect() as connection:
+        connection.execute(
+            "UPDATE jobs SET updated_at = ? WHERE id = ?",
+            ((NOW - timedelta(days=31)).isoformat(), stale.id),
+        )
+
+    removed = store.expire_stale_upload_sessions(NOW)
+    stale_after = store.get_job(stale.id)
+    fresh_after = store.get_job(fresh.id)
+
+    assert removed == 1
+    assert stale_after.state == "validated"
+    assert stale_after.session_uri is None
+    assert stale_after.offset == 0
+    assert fresh_after.state == "uploading"
+    assert fresh_after.session_uri is not None
+
+
 def test_expired_api_fields_are_cleared_but_duplicate_guard_remains(store, candidate, metadata):
     job = store.get_or_create_job(candidate, "UC123", metadata)
     store.mark_video_uploaded(job.id, "video-123", confirmed_at=NOW)

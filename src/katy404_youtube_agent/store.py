@@ -305,6 +305,20 @@ class JobStore:
             )
             return cursor.rowcount
 
+    def expire_stale_upload_sessions(self, now: datetime | str) -> int:
+        """Forget inactive resumable-session URLs after 30 days and allow a clean retry."""
+        current = _parse_utc(now)
+        stale_before = _timestamp(current - timedelta(days=_API_DATA_EXPIRY_DAYS))
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE jobs SET state = 'validated', session_uri = NULL, offset = 0, updated_at = ?
+                WHERE state = 'uploading' AND updated_at <= ?
+                """,
+                (_timestamp(current), stale_before),
+            )
+            return cursor.rowcount
+
     def list_jobs(self, channel_id: str) -> list[UploadJob]:
         with self._connect() as connection:
             rows = connection.execute(

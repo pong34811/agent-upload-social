@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -284,6 +284,25 @@ def test_maintenance_refreshes_due_api_data_and_purges_expired_records(
     cli.api.refresh_videos.assert_called_once_with(["video-123"])
     assert cli.store.get_job(job.id).api_fields["privacy_status"] == "private"
     assert cli.store.get_job(job.id).api_fields["title"] == "Title"
+
+
+def test_maintenance_clears_old_resumable_session_urls(cli, candidate, metadata):
+    job = cli.store.get_or_create_job(candidate, "UC123", metadata)
+    cli.store.mark_validated(job.id)
+    cli.store.set_upload_session(job.id, "https://upload.example.test/expired-session", 4096)
+    with cli.store._connect() as connection:
+        connection.execute(
+            "UPDATE jobs SET updated_at = ? WHERE id = ?",
+            ((NOW - timedelta(days=31)).isoformat(), job.id),
+        )
+
+    result = cli.app.run(["maintenance", "refresh"])
+
+    assert result == 0
+    refreshed = cli.store.get_job(job.id)
+    assert refreshed.state == "validated"
+    assert refreshed.session_uri is None
+    assert refreshed.offset == 0
 
 
 def test_maintenance_lost_channel_access_deletes_local_channel_records(cli, candidate, metadata):
