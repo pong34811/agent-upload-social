@@ -24,6 +24,7 @@ SCOPES = (
     "https://www.googleapis.com/auth/youtube.readonly",
 )
 OAUTH_AUTHORIZATION_TIMEOUT_SECONDS = 600
+TOKEN_FILENAME = "token_waritnan34811.json"
 
 
 class CredentialStoreError(RuntimeError):
@@ -58,34 +59,66 @@ class ChannelRef:
 
 
 class CredentialStore:
-    """Store OAuth credential JSON in Windows Credential Manager via keyring."""
+    """Store the OAuth credential in the project's ignored channel-named token file.
 
-    def __init__(self, backend: Any | None = None) -> None:
-        if backend is None:
-            if os.name != "nt":
-                raise CredentialStoreError("YouTube OAuth credentials require Windows Credential Manager")
-            selected_backend = keyring.get_keyring()
-            if (
-                type(selected_backend).__module__ != "keyring.backends.Windows"
-                or type(selected_backend).__name__ != "WinVaultKeyring"
-            ):
-                raise CredentialStoreError(
-                    "Windows Credential Manager is unavailable; refusing an unprotected token backend"
-                )
-            self._backend = keyring
-        else:
-            self._backend = backend
+    ``backend`` remains available for isolated tests and legacy callers. Normal
+    application runs use the file store so the token stays beside this project
+    and is excluded by ``.gitignore``.
+    """
 
-    def load(self, account_key: str) -> Credentials | None:
-        try:
-            serialized = self._backend.get_password(CREDENTIAL_SERVICE, account_key)
-        except Exception as exc:
-            raise CredentialStoreError("Could not read credentials from Windows Credential Manager") from exc
-        if serialized is None:
+    def __init__(self, backend: Any | None = None, path: Path | None = None) -> None:
+        self._backend = backend
+        self.path = Path(path) if path is not None else Path(__file__).resolve().parents[2] / TOKEN_FILENAME
+
+    def _load_file_data(self) -> dict[str, Any] | None:
+        if not self.path.exists():
             return None
         try:
-            data = json.loads(serialized)
-            return Credentials.from_authorized_user_info(data, scopes=SCOPES)
+            data = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise CredentialStoreError("Could not read the local OAuth token file") from exc
+        if not isinstance(data, dict):
+            raise CredentialStoreError("Local OAuth token file must contain a JSON object")
+        return data
+
+    def _save_file_data(self, data: dict[str, Any]) -> None:
+        temporary = self.path.with_name(f".{self.path.name}.tmp")
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary.write_text(json.dumps(data, ensure_ascii=True, separators=(",", ":")), encoding="utf-8")
+            os.replace(temporary, self.path)
+        except OSError as exc:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise CredentialStoreError("Could not store the local OAuth token file") from exc
+
+    def load(self, account_key: str) -> Credentials | None:
+        if self._backend is not None:
+            try:
+                serialized = self._backend.get_password(CREDENTIAL_SERVICE, account_key)
+            except Exception as exc:
+                raise CredentialStoreError("Could not read legacy credential storage") from exc
+            if serialized is None:
+                return None
+            try:
+                data = json.loads(serialized)
+                return Credentials.from_authorized_user_info(data, scopes=SCOPES)
+            except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+                raise CredentialStoreError("Stored OAuth credential data is invalid") from exc
+
+        data = self._load_file_data()
+        if data is None:
+            return None
+        # The owner credential uses the standard Google OAuth JSON shape.
+        serialized_data: Any = data
+        if account_key != OWNER_ACCOUNT_KEY or "token" not in data and "refresh_token" not in data:
+            serialized_data = data.get(account_key)
+        if serialized_data is None:
+            return None
+        try:
+            return Credentials.from_authorized_user_info(serialized_data, scopes=SCOPES)
         except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
             raise CredentialStoreError("Stored OAuth credential data is invalid") from exc
 
@@ -94,18 +127,48 @@ class CredentialStore:
             serialized = credentials.to_json()
             if not isinstance(serialized, str) or not serialized:
                 raise ValueError("empty credential serialization")
-            json.loads(serialized)
-            self._backend.set_password(CREDENTIAL_SERVICE, account_key, serialized)
-        except Exception as exc:
-            raise CredentialStoreError("Could not store credentials in Windows Credential Manager") from exc
+            data = json.loads(serialized)
+            if not isinstance(data, dict):
+                raise ValueError("credential JSON must be an object")
+        except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
+            raise CredentialStoreError("OAuth credential data is invalid") from exc
+
+        if self._backend is not None:
+            try:
+                self._backend.set_password(CREDENTIAL_SERVICE, account_key, serialized)
+            except Exception as exc:
+                raise CredentialStoreError("Could not store legacy credential data") from exc
+            return
+
+        if account_key == OWNER_ACCOUNT_KEY:
+            self._save_file_data(data)
+            return
+        existing = self._load_file_data() or {}
+        existing[account_key] = data
+        self._save_file_data(existing)
 
     def delete(self, account_key: str) -> None:
-        try:
-            self._backend.delete_password(CREDENTIAL_SERVICE, account_key)
-        except Exception as exc:
-            # A missing entry is already the desired local state.
-            if "not found" not in str(exc).casefold() and "no password" not in str(exc).casefold():
-                raise CredentialStoreError("Could not delete local OAuth credentials") from exc
+        if self._backend is not None:
+            try:
+                self._backend.delete_password(CREDENTIAL_SERVICE, account_key)
+            except Exception as exc:
+                # A missing entry is already the desired local state.
+                if "not found" not in str(exc).casefold() and "no password" not in str(exc).casefold():
+                    raise CredentialStoreError("Could not delete legacy credential data") from exc
+            return
+
+        data = self._load_file_data()
+        if data is None:
+            return
+        if account_key == OWNER_ACCOUNT_KEY and ("token" in data or "refresh_token" in data):
+            try:
+                self.path.unlink(missing_ok=True)
+            except OSError as exc:
+                raise CredentialStoreError("Could not delete the local OAuth token file") from exc
+            return
+        if account_key in data:
+            del data[account_key]
+            self._save_file_data(data)
 
     def revoke(self, account_key: str) -> None:
         credentials = self.load(account_key)
@@ -123,7 +186,7 @@ class CredentialStore:
         self.delete(account_key)
 
 
-def _validate_desktop_client(client_secrets_path: Path) -> None:
+def _validate_desktop_client(client_secrets_path: Path, *, require_project_prefix: bool = True) -> None:
     client_secrets_path = Path(client_secrets_path)
     try:
         data = json.loads(client_secrets_path.read_text(encoding="utf-8"))
@@ -133,7 +196,9 @@ def _validate_desktop_client(client_secrets_path: Path) -> None:
     if not isinstance(installed, dict):
         raise OAuthConfigurationError("OAuth client must use the Desktop installed-app format")
     project_id = installed.get("project_id")
-    if not isinstance(project_id, str) or not project_id.startswith("mfk110"):
+    if not isinstance(project_id, str) or not project_id.strip():
+        raise OAuthConfigurationError("Desktop OAuth client is missing project_id")
+    if require_project_prefix and not project_id.startswith("mfk110"):
         raise OAuthConfigurationError("Desktop OAuth project_id must start with mfk110")
 
 
@@ -142,9 +207,10 @@ def authorize_desktop(
     credential_store: CredentialStore,
     *,
     on_authorization_started: Callable[[], None] | None = None,
+    require_project_prefix: bool = True,
 ) -> Credentials:
     """Open the one-time local browser consent flow and save the grant securely."""
-    _validate_desktop_client(client_secrets_path)
+    _validate_desktop_client(client_secrets_path, require_project_prefix=require_project_prefix)
     flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), scopes=SCOPES)
     if on_authorization_started is not None:
         on_authorization_started()

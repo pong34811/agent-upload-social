@@ -3,6 +3,10 @@ client_secrets.json
 **/client_secrets.json
 token.json
 **/token.json
+token_*.json
+**/token_*.json
+*.token.json
+.token.json.tmp
 *.sqlite3
 *.db
 *.log

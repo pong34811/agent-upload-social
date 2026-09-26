@@ -22,11 +22,11 @@
 - path, ชื่อไฟล์, ขนาด, เวลาแก้ไข และ SHA-256 ของวิดีโอ/JPG: เก็บในฐานข้อมูล LocalAppData เพื่อจับคู่ไฟล์, ตรวจการเปลี่ยนแปลง, กันส่งซ้ำ และกู้การอัปโหลดที่หยุดกลางคัน
 - metadata ที่เจ้าของตั้งหรือโปรแกรมสร้างจากชื่อไฟล์: title, description, tags, category, privacy, Made for Kids และ synthetic-media declaration; ส่งไปกับคำขออัปโหลดตามค่าที่เจ้าของยืนยัน
 - profile settings ที่เจ้าของกรอก: channel alias, OAuth JSON path, privacy-policy URL/เวลาและ revision ที่ยอมรับ, category, tags, description template, privacy default, Shorts suffix, rights/audience declarations, Official Artist Channel status, และ API-audit declaration
-- OAuth token: เก็บเฉพาะใน Windows Credential Manager เพื่อเรียก API ในนามบัญชีที่ยินยอม ไม่มีการบันทึก token ใน repo หรือ `token.json`
+- OAuth token ช่อง waritnan34811: เก็บใน `token_waritnan34811.json` ภายในโฟลเดอร์โปรเจกต์เพื่อเรียก API ในนามบัญชีที่ยินยอม ไฟล์นี้ถูกกันออกจาก Git ด้วย `.gitignore`
 - ข้อมูลที่อ่านจาก YouTube API: channel ID/name/handle เพื่อยืนยันช่อง และ video ID, title, description, privacy status, thumbnail URL, published time และเวลา refresh เพื่อยืนยันผล/ดูแลสถานะงาน
 - resumable upload session URL และ offset: เก็บใน SQLite ภายในเครื่องเพื่อกลับไปทำ upload ที่ค้างต่อได้; URL นี้เป็นข้อมูลลับสำหรับ session, ไม่แสดงใน CLI, และ maintenance ล้าง session ที่ไม่มีกิจกรรม 30 วันเพื่อให้การอัปโหลดครั้งถัดไปเริ่ม session ใหม่
 
-โปรไฟล์และ job state อยู่ที่ `%LOCALAPPDATA%\Katy404\YouTubeUploader\`; OAuth token อยู่ใน Windows Credential Manager ของบัญชีผู้ใช้เดียวกัน ข้อมูลเหล่านี้ไม่ถูก sync โดยโปรแกรมไปยัง Google Drive หรือบริการอื่น
+โปรไฟล์และ job state อยู่ที่ `%LOCALAPPDATA%\Katy404\YouTubeUploader\`; OAuth token อยู่ใน `token_waritnan34811.json` ภายในโฟลเดอร์โปรเจกต์ ข้อมูลเหล่านี้ไม่ถูก sync โดยโปรแกรมไปยัง Google Drive หรือบริการอื่น
 
 ## การส่งต่อข้อมูล
 

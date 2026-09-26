@@ -69,7 +69,7 @@ _JAVASCRIPT = """(() => {
   const line = document.querySelector(".status-line");
   const states = {
     waiting: ["กำลังรอการยืนยันจาก Google", "ทำขั้นตอนลงชื่อเข้าใช้และยินยอมในหน้าต่าง Google ที่เปิดขึ้น"],
-    connected: ["เชื่อมต่อบัญชีสำเร็จ", "บันทึกสิทธิ์ใน Windows Credential Manager แล้ว กลับไปดูผลตรวจช่องในโปรแกรม"],
+    connected: ["เชื่อมต่อบัญชีสำเร็จ", "บันทึก OAuth credential ใน token_waritnan34811.json แล้ว กลับไปดูผลตรวจช่องในโปรแกรม"],
     stopped: ["การเชื่อมต่อหยุดแล้ว", "ดูรายละเอียดในหน้าต่างโปรแกรม แล้วลองใหม่เมื่อพร้อม"]
   };
   let timer = null;

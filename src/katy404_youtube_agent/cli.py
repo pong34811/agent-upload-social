@@ -41,7 +41,13 @@ class OAuthService:
     ) -> None:
         self._status_page_factory = status_page_factory
 
-    def authorize(self, client_secrets_path: Path, credential_store: CredentialStore) -> Any:
+    def authorize(
+        self,
+        client_secrets_path: Path,
+        credential_store: CredentialStore,
+        *,
+        allow_any_project: bool = False,
+    ) -> Any:
         from .auth import authorize_desktop
 
         status_page: LocalOAuthStatusPage | None = None
@@ -55,11 +61,19 @@ class OAuthService:
             status_page.set_state("waiting")
 
         try:
-            credentials = authorize_desktop(
-                client_secrets_path,
-                credential_store,
-                on_authorization_started=start_status_page,
-            )
+            if allow_any_project:
+                credentials = authorize_desktop(
+                    client_secrets_path,
+                    credential_store,
+                    on_authorization_started=start_status_page,
+                    require_project_prefix=False,
+                )
+            else:
+                credentials = authorize_desktop(
+                    client_secrets_path,
+                    credential_store,
+                    on_authorization_started=start_status_page,
+                )
             if page_started and status_page is not None:
                 status_page.set_state("connected")
             return credentials
@@ -115,6 +129,11 @@ def _build_parser() -> argparse.ArgumentParser:
     auth_commands = auth.add_subparsers(dest="auth_command", required=True)
     login = auth_commands.add_parser("login", help="สร้าง/ตรวจ OAuth credential โดยไม่อัปโหลดวิดีโอ")
     login.add_argument("--channel", required=True, help="ชื่อช่อง, handle หรือ channel ID ที่ต้องการเชื่อม")
+    token = auth_commands.add_parser(
+        "token",
+        help="เปิด Google OAuth และบันทึก credential โดยไม่ต้องสร้างโปรไฟล์หรืออัปโหลดวิดีโอ",
+    )
+    token.add_argument("--client-secrets", required=True, type=Path, help="พาธ Desktop OAuth JSON")
 
     for name in ("dry-run", "upload"):
         command = commands.add_parser(name, help="ตรวจไฟล์ในโฟลเดอร์ที่ระบุ" if name == "dry-run" else "อัปโหลดโฟลเดอร์ที่ระบุ")
@@ -158,6 +177,8 @@ class CliApp:
                 return self._run_profile(args)
             if args.command == "auth" and args.auth_command == "login":
                 return self._auth_login(args.channel)
+            if args.command == "auth" and args.auth_command == "token":
+                return self._auth_token(args.client_secrets)
             if args.command == "dry-run":
                 return self._dry_run(args.folder, args.channel)
             if args.command == "upload":
@@ -330,7 +351,33 @@ class CliApp:
             return 1
 
         print(f"เชื่อมบัญชีและยืนยันช่อง: {channel.display_name} ({channel.channel_id})")
-        print("OAuth credential บันทึกใน Windows Credential Manager แล้ว; ไม่มีการอัปโหลดวิดีโอ")
+        print("OAuth credential บันทึกใน token_waritnan34811.json แล้ว; ไม่มีการอัปโหลดวิดีโอ")
+        return 0
+
+    def _auth_token(self, client_secrets_path: Path) -> int:
+        """Create the local OAuth grant without requiring upload profile metadata."""
+        credential_store = self._get_credential_store()
+        try:
+            if credential_store.load(OWNER_ACCOUNT_KEY) is not None:
+                print(
+                    "มี OAuth credential อยู่แล้วใน token_waritnan34811.json; "
+                    "ไม่เขียนทับ credential เดิม",
+                    file=sys.stderr,
+                )
+                return 2
+            self.oauth.authorize(Path(client_secrets_path), credential_store, allow_any_project=True)
+        except AuthorizationRevokedError as exc:
+            print(f"OAuth ถูกยกเลิกหรือหมดอายุ: {self._safe_error(exc)}", file=sys.stderr)
+            return 1
+        except (CredentialStoreError, AuthorizationRequiredError, ValueError, OSError) as exc:
+            print(f"สร้าง OAuth credential ไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f"OAuth ไม่สำเร็จ ({type(exc).__name__})", file=sys.stderr)
+            return 1
+
+        print("สร้าง OAuth credential สำเร็จและบันทึกใน token_waritnan34811.json แล้ว")
+        print("ขั้นตอนนี้ไม่มีการอัปโหลดวิดีโอ")
         return 0
 
     def _upload(self, args: argparse.Namespace) -> int:

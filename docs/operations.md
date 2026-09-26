@@ -37,9 +37,9 @@ kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chann
 
 ### เมื่อไม่มี OAuth credential
 
-ถ้า Windows Credential Manager ยังไม่มี credential คำสั่ง `upload` จะเปิดหน้า local แสดงสถานะ แล้วเปิด Google OAuth Desktop flow ให้เจ้าของยืนยันตัวตนบนหน้า Google หน้า local ไม่ขอรหัสผ่านและไม่แสดง token; เมื่อบันทึก credential สำเร็จ หน้าแจ้ง `connected` แล้ว CLI ตรวจช่องที่ระบุก่อนเริ่มส่งวิดีโอ หากช่องไม่ตรง/กำกวม, consent ถูกยกเลิก, ใช้เวลาเกิน 10 นาที หรือบันทึก credential ไม่สำเร็จ คำสั่งหยุดก่อน upload
+ถ้ายังไม่มี credential ใน `token_waritnan34811.json` คำสั่ง `upload` จะเปิดหน้า local แสดงสถานะ แล้วเปิด Google OAuth Desktop flow ให้เจ้าของยืนยันตัวตนบนหน้า Google หน้า local ไม่ขอรหัสผ่านและไม่แสดง token; เมื่อบันทึก credential สำเร็จ หน้าแจ้ง `connected` แล้ว CLI ตรวจช่องที่ระบุก่อนเริ่มส่งวิดีโอ หากช่องไม่ตรง/กำกวม, consent ถูกยกเลิก, ใช้เวลาเกิน 10 นาที หรือบันทึก credential ไม่สำเร็จ คำสั่งหยุดก่อน upload
 
-credential ที่บันทึกสำเร็จยังอยู่ใน Windows Credential Manager หากชื่อช่องไม่ตรง เพื่อให้เจ้าของใช้กับคำสั่งครั้งถัดไปได้ตามต้องการ; อ่านรายละเอียดที่ [คู่มือติดตั้ง](setup.md). `dry-run` ยังคงทำงาน offline และไม่เปิด OAuth
+credential ที่บันทึกสำเร็จยังอยู่ใน `token_waritnan34811.json` หากชื่อช่องไม่ตรง เพื่อให้เจ้าของใช้กับคำสั่งครั้งถัดไปได้ตามต้องการ; อ่านรายละเอียดที่ [คู่มือติดตั้ง](setup.md). `dry-run` ยังคงทำงาน offline และไม่เปิด OAuth
 
 หากต้องการล็อกอินและยืนยันช่องโดยไม่เริ่ม pilot ให้ใช้ `kt404-youtube auth login --channel "Katy404"` คำสั่งนี้ผ่าน profile/policy gates เดิม ตรวจช่องจาก API และหยุดโดยไม่มีการส่งคลิป
 
@@ -83,7 +83,7 @@ kt404-youtube profile delete-account-data --channel-id CHANNEL_ID
 kt404-youtube profile revoke-authorization --channel-id CHANNEL_ID
 ```
 
-คำสั่งลบข้อมูลลบ job/API-derived records, resumable state, channel ID และ pilot ID ที่ผูกกับ channel ID ในเครื่อง แต่คงการตั้งค่าปฏิบัติงานของโปรไฟล์ไว้ และไม่ลบวิดีโอบน YouTube การลบ state ทำให้ hash เดิมไม่ถูกกันซ้ำอีกในครั้งถัดไป คำสั่ง revoke ส่งคำขอยกเลิก grant กับ Google, ลบ OAuth token ใน Windows Credential Manager และลบข้อมูลของช่อง หากติดต่อ Google ไม่ได้ ให้ตรวจรายการแอปที่เชื่อมไว้ใน [Google Security permissions](https://security.google.com/settings/security/permissions)
+คำสั่งลบข้อมูลลบ job/API-derived records, resumable state, channel ID และ pilot ID ที่ผูกกับ channel ID ในเครื่อง แต่คงการตั้งค่าปฏิบัติงานของโปรไฟล์ไว้ และไม่ลบวิดีโอบน YouTube การลบ state ทำให้ hash เดิมไม่ถูกกันซ้ำอีกในครั้งถัดไป คำสั่ง revoke ส่งคำขอยกเลิก grant กับ Google, ลบ OAuth token ใน `token_waritnan34811.json` และลบข้อมูลของช่อง หากติดต่อ Google ไม่ได้ ให้ตรวจรายการแอปที่เชื่อมไว้ใน [Google Security permissions](https://security.google.com/settings/security/permissions)
 
 ## Maintenance รายสัปดาห์
 
@@ -92,7 +92,7 @@ kt404-youtube profile revoke-authorization --channel-id CHANNEL_ID
 ตั้ง Windows Task Scheduler ด้วยผู้ใช้ Windows คนเดียวกับที่เก็บ OAuth token:
 
 1. เลือก **Create Task** ชื่อ `Katy404 YouTube API maintenance` ให้ทำงานสัปดาห์ละครั้งในเวลาที่เครื่องเปิดอยู่ และเปิดการตั้งค่าให้ Task Scheduler เริ่มงานโดยเร็วหากพลาดเวลาเริ่มตามกำหนด
-2. เลือก **Run only when user is logged on** เพื่อใช้ Windows Credential Manager ของบัญชีเจ้าของ
+2. เลือก **Run only when user is logged on** เพื่อให้โปรแกรมเข้าถึง `token_waritnan34811.json` และโปรไฟล์ของบัญชีเจ้าของ
 3. Action: Start a program; Program ใช้พาธเต็มของ `kt404-youtube.exe` ใน environment ที่ติดตั้ง เช่น `<project>\.venv\Scripts\kt404-youtube.exe`; Arguments คือ `maintenance refresh`; Start in คือโฟลเดอร์โปรเจกต์
 4. เพิ่ม trigger ตอนผู้ใช้ sign in เพื่อให้ตรวจข้อมูลหลังเครื่องกลับมาออนไลน์ อย่าตั้ง trigger แบบ file watcher หรือเพิ่มพาธวิดีโอ/คำสั่ง `upload` ใน task
 

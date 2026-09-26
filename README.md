@@ -38,9 +38,9 @@ kt404-youtube dry-run --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chan
 kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404" --limit 1 --force-private
 ```
 
-เมื่อสั่ง `upload` หากยังไม่มี OAuth credential โปรแกรมจะเปิดหน้า **local status page** และ Google OAuth ให้เจ้าของลงชื่อเข้าใช้/ยินยอมบนหน้า Google เท่านั้น; หน้าสถานะไม่รับรหัสผ่านและไม่แสดง token หลังบันทึก credential ใน Windows Credential Manager แล้ว CLI จะตรวจว่าบัญชีนั้นเข้าถึงช่องที่ระบุก่อนเริ่มส่งวิดีโอ
+เมื่อสั่ง `upload` หากยังไม่มี OAuth credential โปรแกรมจะเปิดหน้า **local status page** และ Google OAuth ให้เจ้าของลงชื่อเข้าใช้/ยินยอมบนหน้า Google เท่านั้น; หน้าสถานะไม่รับรหัสผ่านและไม่แสดง token หลังบันทึก credential ใน `token_waritnan34811.json` แล้ว CLI จะตรวจว่าบัญชีนั้นเข้าถึงช่องที่ระบุก่อนเริ่มส่งวิดีโอ
 
-หากต้องการเชื่อมบัญชีและตรวจช่องโดยยังไม่อัปโหลดคลิป ใช้ `kt404-youtube auth login --channel "Katy404"`; คำสั่งนี้บันทึก credential ใน Windows Credential Manager และจบหลังตรวจช่อง
+หากต้องการเชื่อมบัญชีและตรวจช่องโดยยังไม่อัปโหลดคลิป ใช้ `kt404-youtube auth login --channel "Katy404"`; คำสั่งนี้บันทึก credential ใน `token_waritnan34811.json` และจบหลังตรวจช่อง
 
 ตรวจผลใน YouTube Studio แล้วเจ้าของอนุมัติ video ID ก่อน:
 
@@ -59,7 +59,7 @@ kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chann
 ## พื้นที่เก็บข้อมูล
 
 - โปรไฟล์และ SQLite job state: `%LOCALAPPDATA%\Katy404\YouTubeUploader\`
-- OAuth token: Windows Credential Manager; ไม่สร้าง `token.json`
+- OAuth token ช่อง waritnan34811: `token_waritnan34811.json`; `.gitignore` กันไฟล์ token ที่ขึ้นต้น `token_` ไม่ให้เข้า Git
 - OAuth Desktop JSON: เก็บใน `%LOCALAPPDATA%\Katy404\YouTubeUploader\` และอย่าใส่ใน Git หรือ Google Drive
 - วิดีโอต้นฉบับ/ภาพ JPG ยังคงอยู่ในโฟลเดอร์ที่เจ้าของเลือก
 
