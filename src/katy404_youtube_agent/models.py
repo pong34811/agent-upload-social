@@ -84,3 +84,54 @@ class UploadJob:
     api_refreshed_at: datetime | None = field(default=None, compare=False)
     api_fields: dict[str, str] = field(default_factory=dict, compare=False)
     failure_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VideoUploadResult:
+    video_id: str
+    actual_visibility: str
+    video_url: str
+    confirmed_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class UploadChunkResult:
+    next_offset: int | None = None
+    result: VideoUploadResult | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ThumbnailResult:
+    success: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ApiVideoSnapshot:
+    video_id: str
+    title: str | None
+    description: str | None
+    privacy_status: str | None
+    thumbnail_url: str | None
+    published_at: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class UploadItemResult:
+    status: str
+    source_path: Path
+    video_id: str | None = None
+    video_url: str | None = None
+    actual_visibility: str | None = None
+    thumbnail_status: str | None = None
+    error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class BatchReport:
+    items: list[UploadItemResult]
+    uploaded_count: int
+    skipped_count: int
+    failed_count: int
+    pending_count: int
+    stopped_reason: str | None = None

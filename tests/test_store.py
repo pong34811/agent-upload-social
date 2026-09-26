@@ -102,3 +102,19 @@ def test_confirmed_upload_cannot_be_marked_failed_or_skipped(store, candidate, m
         store.mark_failed(job.id, "thumbnail_error")
     with pytest.raises(JobStateError, match="uploaded"):
         store.mark_skipped(job.id, "already_uploaded")
+
+
+def test_failed_thumbnail_stays_retryable_after_video_success(store, candidate, metadata):
+    job = store.get_or_create_job(candidate, "UC123", metadata)
+    store.mark_video_uploaded(job.id, "video-123", confirmed_at=NOW)
+
+    store.mark_thumbnail_result(job.id, success=False)
+    failed_attempt = store.get_job(job.id)
+
+    assert failed_attempt.state == "uploaded"
+    assert failed_attempt.thumbnail_status == "failed"
+
+    store.mark_thumbnail_result(job.id, success=True)
+    finished = store.get_job(job.id)
+    assert finished.state == "complete"
+    assert finished.thumbnail_status == "success"

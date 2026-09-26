@@ -227,11 +227,13 @@ class JobStore:
             desired = "success" if success else "failed"
             if row["state"] == "complete":
                 if row["thumbnail_status"] != desired:
-                    raise JobStateError("Thumbnail result is already recorded")
+                    raise JobStateError("A successful thumbnail result cannot be overwritten")
                 return
             if row["state"] != "uploaded":
                 raise JobStateError(f"Thumbnail result requires an uploaded video; current state is {row['state']}")
-            self._update(connection, job_id, state="complete", thumbnail_status=desired)
+            # Keep failed thumbnails retryable while the video remains safely marked uploaded.
+            new_state = "complete" if success else "uploaded"
+            self._update(connection, job_id, state=new_state, thumbnail_status=desired)
 
     def mark_failed(self, job_id: str, failure_code: str) -> None:
         if not failure_code or not failure_code.strip():
