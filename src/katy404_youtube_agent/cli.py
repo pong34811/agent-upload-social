@@ -111,6 +111,11 @@ def _build_parser() -> argparse.ArgumentParser:
     revoke = profile_commands.add_parser("revoke-authorization", help="ยกเลิกสิทธิ์ OAuth และลบข้อมูลช่อง")
     revoke.add_argument("--channel-id")
 
+    auth = commands.add_parser("auth", help="เชื่อมบัญชี Google สำหรับ YouTube")
+    auth_commands = auth.add_subparsers(dest="auth_command", required=True)
+    login = auth_commands.add_parser("login", help="สร้าง/ตรวจ OAuth credential โดยไม่อัปโหลดวิดีโอ")
+    login.add_argument("--channel", required=True, help="ชื่อช่อง, handle หรือ channel ID ที่ต้องการเชื่อม")
+
     for name in ("dry-run", "upload"):
         command = commands.add_parser(name, help="ตรวจไฟล์ในโฟลเดอร์ที่ระบุ" if name == "dry-run" else "อัปโหลดโฟลเดอร์ที่ระบุ")
         command.add_argument("--folder", required=True, type=Path)
@@ -151,6 +156,8 @@ class CliApp:
             args = parser.parse_args(argv)
             if args.command == "profile":
                 return self._run_profile(args)
+            if args.command == "auth" and args.auth_command == "login":
+                return self._auth_login(args.channel)
             if args.command == "dry-run":
                 return self._dry_run(args.folder, args.channel)
             if args.command == "upload":
@@ -293,6 +300,37 @@ class CliApp:
         for item in report.items:
             if item.status != "ready":
                 print(f"  {item.source_path.name}: {item.error_code or item.status}")
+        return 0
+
+    def _auth_login(self, requested_channel: str) -> int:
+        profile = self._load_profile()
+        if profile is None:
+            return 2
+        # Keep the existing policy/configuration gates before any OAuth or API request.
+        validate_upload_profile(profile, requested_privacy="private")
+        credential_store = self._get_credential_store()
+        try:
+            credentials = credential_store.load(OWNER_ACCOUNT_KEY)
+            if credentials is None:
+                credentials = self.oauth.authorize(profile.client_secrets_path, credential_store)
+            elif not getattr(credentials, "valid", True):
+                credentials = self.oauth.refresh(OWNER_ACCOUNT_KEY, credential_store, credentials)
+
+            api = self.oauth.build_api(credentials, self.store)
+            channel = resolve_channel(requested_channel, api.list_owned_channels())
+        except AuthorizationRevokedError as exc:
+            self._handle_revoked_authorization(profile)
+            print(f"OAuth ถูกยกเลิกหรือหมดอายุ; ลบข้อมูล API ในเครื่อง: {self._safe_error(exc)}", file=sys.stderr)
+            return 1
+        except (ProfileError, CredentialStoreError, AuthorizationRequiredError, ValueError, OSError) as exc:
+            print(f"เชื่อมช่องไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f"เชื่อมช่องไม่สำเร็จ ({type(exc).__name__})", file=sys.stderr)
+            return 1
+
+        print(f"เชื่อมบัญชีและยืนยันช่อง: {channel.display_name} ({channel.channel_id})")
+        print("OAuth credential บันทึกใน Windows Credential Manager แล้ว; ไม่มีการอัปโหลดวิดีโอ")
         return 0
 
     def _upload(self, args: argparse.Namespace) -> int:

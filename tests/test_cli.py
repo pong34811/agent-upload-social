@@ -151,6 +151,56 @@ def test_missing_credential_authorizes_before_api_creation_and_upload(cli):
     cli.credentials.load.assert_called_once_with("owner")
 
 
+def test_auth_login_authorizes_and_checks_channel_without_upload(cli, capsys):
+    events = []
+    credential = SimpleNamespace(valid=True)
+    cli.credentials.load.side_effect = lambda _key: None
+    cli.oauth.authorize.side_effect = lambda *_args: (events.append("authorize"), credential)[1]
+    cli.oauth.build_api.side_effect = lambda *_args: (events.append("build_api"), cli.api)[1]
+    cli.api.list_owned_channels.side_effect = lambda: (
+        events.append("channels"), [ChannelRef("UC123", "Katy404", "@Katy404")]
+    )[1]
+
+    result = cli.app.run(["auth", "login", "--channel", "Katy404"])
+
+    assert result == 0
+    assert events == ["authorize", "build_api", "channels"]
+    assert "Katy404" in capsys.readouterr().out
+    cli.runner.upload.assert_not_called()
+
+
+def test_auth_login_refuses_unaccepted_policy_before_oauth(cli_unaccepted_policy):
+    cli = cli_unaccepted_policy
+
+    result = cli.app.run(["auth", "login", "--channel", "Katy404"])
+
+    assert result == 2
+    cli.credentials.load.assert_not_called()
+    cli.oauth.authorize.assert_not_called()
+    cli.oauth.build_api.assert_not_called()
+    cli.runner.upload.assert_not_called()
+
+
+def test_auth_login_keeps_credential_but_stops_when_channel_does_not_match(cli, capsys):
+    stored = {}
+    credential = SimpleNamespace(valid=True)
+    cli.credentials.load.side_effect = lambda key: stored.get(key)
+
+    def authorize(_path, _store):
+        stored["owner"] = credential
+        return credential
+
+    cli.oauth.authorize.side_effect = authorize
+    cli.api.list_owned_channels.return_value = [ChannelRef("UC999", "Another Channel", "@another")]
+
+    result = cli.app.run(["auth", "login", "--channel", "Katy404"])
+
+    assert result == 2
+    assert cli.credentials.load("owner") is credential
+    assert "No owned YouTube channel matches exactly: Katy404" in capsys.readouterr().err
+    cli.runner.upload.assert_not_called()
+
+
 def test_existing_credential_skips_oauth(cli):
     result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
 

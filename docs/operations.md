@@ -41,6 +41,8 @@ kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chann
 
 credential ที่บันทึกสำเร็จยังอยู่ใน Windows Credential Manager หากชื่อช่องไม่ตรง เพื่อให้เจ้าของใช้กับคำสั่งครั้งถัดไปได้ตามต้องการ; อ่านรายละเอียดที่ [คู่มือติดตั้ง](setup.md). `dry-run` ยังคงทำงาน offline และไม่เปิด OAuth
 
+หากต้องการล็อกอินและยืนยันช่องโดยไม่เริ่ม pilot ให้ใช้ `kt404-youtube auth login --channel "Katy404"` คำสั่งนี้ผ่าน profile/policy gates เดิม ตรวจช่องจาก API และหยุดโดยไม่มีการส่งคลิป
+
 เมื่อเสร็จ ให้ตรวจคลิปและ thumbnail ใน YouTube Studio จาก URL ที่คำสั่งรายงาน แล้วเจ้าของจึงบันทึกการอนุมัติ:
 
 ```powershell

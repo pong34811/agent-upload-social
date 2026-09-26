@@ -60,6 +60,14 @@ kt404-youtube profile accept-policy
 
 เมื่อเจ้าของสั่ง `upload` หลัง profile และ policy ผ่านแล้ว โปรแกรมจะเปิดหน้า local เฉพาะกรณีที่ Windows Credential Manager ยังไม่มี OAuth credential หน้าแสดง `waiting`, `connected` หรือ `stopped` และเปิด Google OAuth Desktop flow ให้ลงชื่อเข้าใช้/ยินยอมบนหน้า Google
 
+หากต้องการสร้าง/ตรวจ credential แยกจากการอัปโหลด ให้ใช้คำสั่งนี้หลัง profile และ policy ผ่าน:
+
+```powershell
+kt404-youtube auth login --channel "Katy404"
+```
+
+คำสั่งนี้ใช้ local status page เมื่อยังไม่มี credential, ตรวจว่าบัญชีเข้าถึงช่องที่ระบุ และหยุดหลังยืนยันช่องโดยไม่อัปโหลดวิดีโอ
+
 หน้า local ใช้ดูสถานะเท่านั้น ไม่รับรหัสผ่านหรือ OTP และไม่แสดง access/refresh token เมื่อ credential บันทึกใน Windows Credential Manager สำเร็จ หน้าแสดง `connected`; จากนั้น CLI ยังต้องตรวจ channel name/handle/ID ที่สั่ง หากบัญชีไม่เข้าถึงช่องเป้าหมายหรือชื่อกำกวม โปรแกรมหยุดก่อนส่งวิดีโอ โดย credential ที่เชื่อมสำเร็จยังเก็บไว้ตามปกติ หากยกเลิก, ใช้เวลาเกิน 10 นาที, หรือ OAuth/การบันทึก credential ล้มเหลว หน้านี้แสดง `stopped` และคำสั่ง upload รอบนั้นหยุด
 
 ถ้ามี credential อยู่แล้ว หน้า local จะไม่เปิดและโปรแกรมใช้ flow refresh เดิมตามปกติ การตรวจ `dry-run` เป็น offline และไม่เปิด OAuth หรือหน้านี้
