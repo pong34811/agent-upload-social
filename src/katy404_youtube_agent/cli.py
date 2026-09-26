@@ -384,6 +384,9 @@ class CliApp:
         return 0
 
     def _maintenance_refresh(self) -> int:
+        now = datetime.now(timezone.utc)
+        expired_sessions = self.store.expire_stale_upload_sessions(now)
+        purged_count = self.store.purge_expired_api_records(now)
         profile = self._load_profile()
         if profile is None:
             return 2
@@ -391,8 +394,6 @@ class CliApp:
             print("โปรไฟล์ยังไม่มี channel ID ที่ยืนยันแล้ว", file=sys.stderr)
             return 2
         validate_upload_profile(profile, requested_privacy="private")
-        now = datetime.now(timezone.utc)
-        expired_sessions = self.store.expire_stale_upload_sessions(now)
         credential_store = self._get_credential_store()
         credentials = credential_store.load(OWNER_ACCOUNT_KEY)
         if credentials is None:
@@ -430,7 +431,7 @@ class CliApp:
                 }
                 self.store.refresh_api_record(job.id, now, fields)
                 refreshed_count += 1
-            purged_count = self.store.purge_expired_api_records(now)
+            purged_count += self.store.purge_expired_api_records(now)
             print(
                 f"ปรับปรุงข้อมูล API {refreshed_count} รายการ; "
                 f"ลบข้อมูล API ที่หมดอายุ {purged_count} รายการ; "

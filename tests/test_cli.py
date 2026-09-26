@@ -270,10 +270,23 @@ def test_thumbnail_failure_is_reported_as_batch_error(cli):
 def test_maintenance_refreshes_due_api_data_and_purges_expired_records(
     cli, candidate, metadata, monkeypatch
 ):
+    now = datetime.now(timezone.utc)
     job = cli.store.get_or_create_job(candidate, "UC123", metadata)
-    cli.store.mark_video_uploaded(job.id, "video-123", datetime(2026, 8, 1, tzinfo=timezone.utc))
+    due_at = now - timedelta(days=29, seconds=1)
+    cli.store.mark_video_uploaded(job.id, "video-123", due_at)
     cli.store.mark_thumbnail_result(job.id, success=True)
-    cli.store.refresh_api_record(job.id, datetime(2026, 8, 1, tzinfo=timezone.utc), {"privacy_status": "private"})
+    cli.store.refresh_api_record(job.id, due_at, {"privacy_status": "private"})
+    expired_candidate = replace(
+        candidate,
+        path=candidate.path.with_name("expired.mov"),
+        thumbnail_path=candidate.thumbnail_path.with_name("expired.jpg"),
+        sha256="d" * 64,
+    )
+    expired = cli.store.get_or_create_job(expired_candidate, "UC123", metadata)
+    expired_at = now - timedelta(days=31)
+    cli.store.mark_video_uploaded(expired.id, "video-expired", expired_at)
+    cli.store.mark_thumbnail_result(expired.id, success=True)
+    cli.store.refresh_api_record(expired.id, expired_at, {"privacy_status": "private"})
     cli.api.refresh_videos.return_value = [
         ApiVideoSnapshot("video-123", "Title", None, "private", None, None)
     ]
@@ -284,6 +297,8 @@ def test_maintenance_refreshes_due_api_data_and_purges_expired_records(
     cli.api.refresh_videos.assert_called_once_with(["video-123"])
     assert cli.store.get_job(job.id).api_fields["privacy_status"] == "private"
     assert cli.store.get_job(job.id).api_fields["title"] == "Title"
+    assert cli.store.get_job(expired.id).video_id is None
+    assert cli.store.get_job(expired.id).api_fields == {}
 
 
 def test_maintenance_clears_old_resumable_session_urls(cli, candidate, metadata):
@@ -303,6 +318,21 @@ def test_maintenance_clears_old_resumable_session_urls(cli, candidate, metadata)
     assert refreshed.state == "validated"
     assert refreshed.session_uri is None
     assert refreshed.offset == 0
+
+
+def test_maintenance_purges_expired_api_data_even_without_oauth_token(cli, candidate, metadata):
+    job = cli.store.get_or_create_job(candidate, "UC123", metadata)
+    old = NOW - timedelta(days=31)
+    cli.store.mark_video_uploaded(job.id, "video-123", old)
+    cli.store.mark_thumbnail_result(job.id, success=True)
+    cli.store.refresh_api_record(job.id, old, {"privacy_status": "private"})
+    cli.credentials.load.side_effect = lambda _key: None
+
+    result = cli.app.run(["maintenance", "refresh"])
+
+    assert result == 1
+    assert cli.store.get_job(job.id).video_id is None
+    assert cli.store.get_job(job.id).api_fields == {}
 
 
 def test_maintenance_lost_channel_access_deletes_local_channel_records(cli, candidate, metadata):
