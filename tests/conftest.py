@@ -1,9 +1,11 @@
+from datetime import datetime, timezone
+
 import pytest
 
 from katy404_youtube_agent.models import MediaCandidate, UploadProfile, VideoMetadata
 
 
-NOW = "2026-09-26T00:00:00Z"
+NOW = datetime(2026, 9, 26, tzinfo=timezone.utc)
 
 
 @pytest.fixture
@@ -26,7 +28,7 @@ def valid_profile(tmp_path):
         is_official_artist_channel=False,
         shorts_title_suffix=" #Shorts",
         privacy_policy_url="https://privacy.example.test/katy404",
-        policy_accepted_at=NOW,
+        policy_accepted_at=NOW.isoformat().replace("+00:00", "Z"),
         policy_version_accepted="2026-09-26",
         approved_pilot_video_id=None,
     )
@@ -61,3 +63,30 @@ def metadata():
         contains_synthetic_media=False,
         short_candidate=True,
     )
+
+
+@pytest.fixture
+def store(tmp_path):
+    from katy404_youtube_agent.store import JobStore
+
+    return JobStore(tmp_path / "state.sqlite3")
+
+
+@pytest.fixture
+def completed_and_pending_jobs(store, candidate, metadata):
+    import dataclasses
+
+    completed = store.get_or_create_job(candidate, "UC123", metadata)
+    store.mark_video_uploaded(completed.id, "video-123", confirmed_at=NOW)
+    store.mark_thumbnail_result(completed.id, success=True)
+
+    other_candidate = dataclasses.replace(
+        candidate,
+        path=candidate.path.with_name("other.mov"),
+        thumbnail_path=candidate.thumbnail_path.with_name("other.jpg"),
+        sha256="c" * 64,
+    )
+    pending = store.get_or_create_job(other_candidate, "UC123", metadata)
+    store.mark_validated(pending.id)
+    store.set_upload_session(pending.id, "https://upload.example.test/session-secret", 2)
+    return completed, pending
