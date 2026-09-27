@@ -6,13 +6,15 @@ from unittest.mock import Mock
 
 import pytest
 
-from katy404_youtube_agent.models import UploadChunkResult, VideoUploadResult
+from katy404_youtube_agent.models import ApiVideoSnapshot, UploadChunkResult, VideoUploadResult
 from katy404_youtube_agent.youtube import (
     QuotaExceeded,
     ResumableTransport,
     ResumableUploader,
     RetryableUploadError,
     UploadSessionExpired,
+    VideoSchedulingError,
+    YouTubeApi,
 )
 
 CHUNK = 8 * 1024 * 1024
@@ -231,3 +233,139 @@ def test_transport_marks_server_failures_retryable():
 
     with pytest.raises(RetryableUploadError):
         transport.query_session("https://upload.example.test/session", 5)
+
+
+@pytest.fixture
+def scheduling_api():
+    api = YouTubeApi(credentials=None, client=Mock(), transport=Mock())
+    snapshot = ApiVideoSnapshot(
+        video_id="video-123",
+        title="Title",
+        description=None,
+        privacy_status="private",
+        thumbnail_url=None,
+        published_at=None,
+        channel_id="UC123",
+        embeddable=True,
+        license="youtube",
+        public_stats_viewable=True,
+        self_declared_made_for_kids=False,
+        contains_synthetic_media=False,
+    )
+    return api, snapshot
+
+
+@pytest.mark.parametrize("confirmed_publish_at", [
+    "2099-10-01T07:30:00+07:00",
+    "2099-10-01T00:30:00Z",
+])
+def test_schedule_video_confirms_remote_schedule_and_preserves_status(
+    scheduling_api, confirmed_publish_at
+):
+    api, snapshot = scheduling_api
+    confirmed = dataclasses.replace(snapshot, publish_at=confirmed_publish_at)
+    api.refresh_videos = Mock(side_effect=[[snapshot], [confirmed]])
+
+    changed = api.schedule_video(
+        "video-123", "UC123", datetime.fromisoformat("2099-10-01T07:30:00+07:00")
+    )
+
+    assert changed is True
+    assert api.refresh_videos.call_args_list == [
+        ((["video-123"],), {}),
+        ((["video-123"],), {}),
+    ]
+    api.client.videos.return_value.update.assert_called_once_with(
+        part="status",
+        body={
+            "id": "video-123",
+            "status": {
+                "privacyStatus": "private",
+                "publishAt": "2099-10-01T07:30:00+07:00",
+                "embeddable": True,
+                "license": "youtube",
+                "publicStatsViewable": True,
+                "selfDeclaredMadeForKids": False,
+                "containsSyntheticMedia": False,
+            },
+        },
+    )
+    api.client.videos.return_value.update.return_value.execute.assert_called_once_with()
+
+
+@pytest.mark.parametrize("remote_changes", [
+    None,
+    {"video_id": "another-video"},
+    {"channel_id": "another-channel"},
+    {"privacy_status": "public"},
+    {"publish_at": None},
+    {"publish_at": "2099-10-02T00:30:00Z"},
+    {"publish_at": "invalid-time"},
+], ids=["missing", "video", "channel", "privacy", "unscheduled", "time", "invalid-time"])
+def test_schedule_video_rejects_unconfirmed_remote_schedule(scheduling_api, remote_changes):
+    api, snapshot = scheduling_api
+    confirmed = dataclasses.replace(snapshot, publish_at="2099-10-01T00:30:00Z")
+    readback = [] if remote_changes is None else [dataclasses.replace(confirmed, **remote_changes)]
+    confirmations = [readback] * 4 if remote_changes is None or remote_changes.get("publish_at", "sentinel") is None else [readback]
+    api.refresh_videos = Mock(side_effect=[[snapshot], *confirmations])
+
+    with pytest.raises(VideoSchedulingError) as failure:
+        api.schedule_video(
+            "video-123", "UC123", datetime.fromisoformat("2099-10-01T07:30:00+07:00")
+        )
+
+    assert failure.value.error_code == "schedule_unconfirmed"
+    assert api.refresh_videos.call_count == (5 if remote_changes is None or remote_changes.get("publish_at", "sentinel") is None else 2)
+    api.client.videos.return_value.update.assert_called_once()
+
+
+def test_schedule_video_already_matching_remote_schedule_is_idempotent(scheduling_api):
+    api, snapshot = scheduling_api
+    api.refresh_videos = Mock(return_value=[
+        dataclasses.replace(snapshot, publish_at="2099-10-01T00:30:00Z")
+    ])
+
+    changed = api.schedule_video(
+        "video-123", "UC123", datetime.fromisoformat("2099-10-01T07:30:00+07:00")
+    )
+
+    assert changed is False
+    api.refresh_videos.assert_called_once_with(["video-123"])
+    api.client.videos.return_value.update.assert_not_called()
+
+
+def test_scheduled_upload_confirms_remote_publish_time(
+    fake_api, store, upload_job, media_file, scheduling_api
+):
+    _, snapshot = scheduling_api
+    job = dataclasses.replace(upload_job, metadata=dataclasses.replace(
+        upload_job.metadata, publish_at="2099-10-01T07:30:00+07:00"
+    ))
+    api = YouTubeApi(credentials=None, store=store, client=Mock(), transport=fake_api)
+    api.refresh_videos = Mock(return_value=[
+        dataclasses.replace(snapshot, publish_at="2099-10-01T00:30:00Z")
+    ])
+
+    result = api.upload_video(job, media_file)
+
+    assert result.video_id == "video-123"
+    api.refresh_videos.assert_called_once_with(["video-123"])
+    fake_api.upload_chunk.assert_called_once()
+
+
+def test_scheduled_upload_rejects_remote_video_without_publish_time(
+    fake_api, store, upload_job, media_file, scheduling_api
+):
+    _, snapshot = scheduling_api
+    job = dataclasses.replace(upload_job, metadata=dataclasses.replace(
+        upload_job.metadata, publish_at="2099-10-01T07:30:00+07:00"
+    ))
+    api = YouTubeApi(credentials=None, store=store, client=Mock(), transport=fake_api)
+    api.refresh_videos = Mock(return_value=[snapshot])
+
+    with pytest.raises(VideoSchedulingError) as failure:
+        api.upload_video(job, media_file)
+
+    assert failure.value.error_code == "schedule_unconfirmed"
+    assert api.refresh_videos.call_count == 4
+    fake_api.upload_chunk.assert_called_once()

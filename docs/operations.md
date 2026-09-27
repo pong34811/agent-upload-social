@@ -1,141 +1,68 @@
-# คู่มือใช้งานประจำวัน
+# คู่มือใช้งาน
 
-คำสั่งทั้งหมดทำงานในเครื่อง Windows และรับเฉพาะโฟลเดอร์ที่ระบุ ไม่เฝ้าดูโฟลเดอร์หรือเริ่มอัปโหลดเองภายหลัง; คำสั่งตั้งเวลาจะส่ง `publishAt` ให้ YouTube ในขณะที่เจ้าของสั่งรัน
+## อัปโหลด
 
-ก่อนงานชุดแรกหรือเมื่อ quota ใกล้เต็ม ตรวจ project ใน Google Cloud Console: 24 คลิปใช้ 24 `videos.insert` calls จาก bucket 100 calls/day ของเมธอดนี้; thumbnail 24 ภาพใช้ประมาณ 1,200 units; การตั้งเวลา video เดิมใช้ `videos.update` 50 units ต่อคลิปตาม [quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost). retries ที่เปิด session insert ใหม่อาจเพิ่มจำนวน calls ตัวเลขและ quota อาจเปลี่ยน ตรวจหน้า Quotas ของ project จริงก่อน batch เต็ม
-
-## ตั้งค่า OAuth และโปรไฟล์
-
-เปิด PowerShell ในโฟลเดอร์โปรเจกต์และเปิด virtual environment ก่อนเรียกคำสั่ง:
+คำสั่ง `upload` ตรวจไฟล์ระดับบนสุดในโฟลเดอร์ที่เลือกก่อนเริ่มส่ง, จับคู่ MOV/JPG, อ่านวิดีโอด้วย `ffprobe`, เติม metadata จาก `profile.json` และกันไฟล์ซ้ำด้วย hash
 
 ```powershell
-.venv\Scripts\Activate.ps1
-kt404-youtube profile setup
-kt404-youtube profile show
+kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "waritnan34811"
 ```
 
-`auth token --client-secrets <พาธ Desktop OAuth JSON>` สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API ส่วน `profile setup` ใช้ OAuth อ่านรายชื่อช่อง แล้วให้เจ้าของเลือกช่องและยืนยันคำอธิบาย/Tags, category, privacy, Made for Kids, synthetic media, Official Artist Channel และสิทธิ์ audio/visual/game footage/overlay
-
-ทั้งสองคำสั่งไม่อัปโหลดวิดีโอ
-
-## ตรวจคลิปโดยไม่เชื่อมต่อ YouTube
+ใช้ `dry-run` เฉพาะเมื่อต้องการดูผลตรวจโดยยังไม่เชื่อมต่อ YouTube:
 
 ```powershell
-kt404-youtube dry-run --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404"
+kt404-youtube dry-run --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "waritnan34811"
 ```
 
-คำสั่งตรวจเฉพาะไฟล์ระดับบนสุด จับคู่ MOV/JPG ด้วยชื่อเดียวกัน, อ่านข้อมูลวิดีโอด้วย `ffprobe`, คำนวณ hash เพื่อกันส่งซ้ำ และแสดงไฟล์ที่ต้องแก้ ไม่มี OAuth หรือ request ไป YouTube ในขั้นนี้
-
-## คลิปนำร่องและ batch
-
-เมื่อเจ้าของสั่งอัปโหลดอย่างชัดเจน คำสั่งแรกจะอัปโหลดคลิปแรกที่ผ่าน preflight เรียงตามชื่อไฟล์ บังคับเป็น Private และแสดงช่องที่ resolve ได้, จำนวนคลิป, จำนวนที่ข้าม, privacy, revision และ declarations ก่อนเริ่มส่ง bytes:
-
-```powershell
-kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404"
-```
+ไม่ต้องอัปโหลดคลิปนำร่องหรืออนุมัติแยกก่อน batch. ถ้าไฟล์บางรายการผิดพลาด โปรแกรมจะแสดงรายการและหยุด/ข้ามตามผลของ CLI; แก้ไฟล์ต้นทางก่อนลองใหม่
 
 ## ตั้งเวลาเผยแพร่
 
-ก่อนตั้งเวลา ต้องตรวจคลิปนำร่องและบันทึก `profile approve-pilot` แล้ว, ผ่าน YouTube API audit, ยืนยันสิทธิ์ assets ที่เกี่ยวข้อง และขอ OAuth consent ใหม่เพื่อเพิ่ม scope `youtube.force-ssl`:
-
-สิทธิ์ที่เจ้าของยืนยันเฉพาะ pilot ผูกกับ video ID นั้นเท่านั้น; การตั้งเวลา/อัปโหลด batch ต้องยืนยันสิทธิ์ assets ของ batch แยกต่างหาก
-
-```powershell
-kt404-youtube auth reauthorize
-```
-
-ตั้งเวลา video เดิมที่โปรแกรมจัดการไว้และยังเป็น Private:
-
-```powershell
-kt404-youtube schedule --video-id VIDEO_ID --publish-at "2026-10-01T07:30:00+07:00"
-```
-
-ตั้งเวลา full batch โดยเรียงชื่อไฟล์แยกตามแนวนอนและแนวตั้ง แล้วกำหนดคู่ลำดับเดียวกันให้อยู่วันเดียวกันและเวลาเดียวกัน:
+ระบุเวลา RFC 3339 พร้อม UTC offset. โหมดตารางจะเรียงไฟล์ตามชื่อ แยกแนวนอน/แนวตั้ง แล้วจับคู่วันละหนึ่งคลิปต่อแนว:
 
 ```powershell
 kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "UCckWRGExmxGqjWjGZgmZypg" --schedule-from "2026-10-01T07:30:00+07:00"
 ```
 
-ตัวอย่างนี้กำหนดหนึ่งคลิปแนวนอนและหนึ่งคลิปแนวตั้งต่อวัน เริ่ม 1 ต.ค. 2026 เวลา 07:30 น. ตามเวลาไทย หากโฟลเดอร์มี 12 คู่จะได้ 12 วันถึง 12 ต.ค. คลิปที่อัปโหลดครบแล้วในโฟลเดอร์จะถูกตั้งเวลาตามช่องของตัวเองโดยไม่อัปโหลดซ้ำ; คลิปใหม่จะถูกส่งเป็น Private พร้อม `publishAt`. คำสั่ง batch ต้องสั่งแยกหลังอนุมัติ pilot และไม่มี background uploader
+คลิปในโฟลเดอร์นี้ 12 คู่จะได้กำหนดการ 12 วัน ตั้งแต่ 1 ถึง 12 ต.ค. 2026 เวลา 07:30 น. ตามเวลาไทย. คลิปใหม่จะอัปโหลดเป็น Private พร้อม `publishAt`; คลิปที่ส่งเสร็จแล้วจะตั้งเวลาผ่าน YouTube โดยไม่ส่งวิดีโอซ้ำ
 
-เวลาเผยแพร่จะถูกตรวจซ้ำก่อนสร้าง/ต่อ resumable session และก่อนส่งแต่ละ chunk; ถ้าเวลาผ่านระหว่างงาน ระบบหยุดคิวและคง checkpoint ไว้ให้ตรวจสอบ งานที่มี `publishAt` ค้างจะไม่ถูกส่งต่อด้วย `upload` ปกติ ต้องผ่านคำสั่งตั้งเวลาและ gates เดิมอีกครั้ง
+การตั้งเวลาต้องมี OAuth scope สำหรับแก้ metadata. คำสั่ง `upload --schedule-from` จะเปิด Google OAuth เองเมื่อยังขาด scope; ยืนยันสิทธิ์บนหน้า Google แล้วโปรแกรมทำงานต่อ. โปรแกรมตรวจช่อง, เวลาในอนาคต และไฟล์ก่อนเริ่ม และอ่าน `private` + `publishAt` กลับจาก API ก่อนรายงานสำเร็จ
 
-เมื่อเจ้าของสั่ง batch ตั้งเวลาใหม่สำหรับ resumable session เก่า ระบบจะ query session แบบไม่ส่งวิดีโอเพิ่มก่อน หาก YouTube ยืนยันว่าอัปโหลดเสร็จแล้ว ระบบบันทึก video ID และตั้งเวลาวิดีโอเดิม; หากยังไม่เสร็จหรือ session หมดอายุ ระบบละทิ้ง session นั้นในเครื่องและเริ่มไฟล์ใหม่ด้วยเวลาที่เจ้าของระบุ
+ค่า `api_audit_passed` เดิมไม่บล็อกคำขอและไม่ใช่ผลตรวจจาก Google. ข้อจำกัด API project เป็นการบังคับใช้ของ YouTube; ถ้า API ปฏิเสธหรือไม่ยืนยันเวลา โปรแกรมหยุดพร้อมเก็บ video ID ที่ได้รับไว้เพื่อแก้ตารางคลิปเดิมโดยไม่อัปโหลดซ้ำ
 
-### เมื่อไม่มี OAuth credential
+## OAuth และโปรไฟล์
 
-ถ้ายังไม่มี credential ในไฟล์ของ OAuth account ที่ผูกกับโปรไฟล์ คำสั่ง `upload` จะเปิดหน้า local แสดงสถานะ แล้วเปิด Google OAuth Desktop flow ให้เจ้าของยืนยันตัวตนบนหน้า Google หน้า local ไม่ขอรหัสผ่านและไม่แสดง token; เมื่อบันทึก credential สำเร็จ หน้าแจ้ง `connected` แล้ว CLI ตรวจช่องที่ระบุก่อนเริ่มส่งวิดีโอ หากช่องไม่ตรง/กำกวม, consent ถูกยกเลิก, ใช้เวลาเกิน 10 นาที หรือบันทึก credential ไม่สำเร็จ คำสั่งหยุดก่อน upload
+ค่าช่อง, metadata, privacy และ account label อ่านจาก `profile.json`. โดยปกติไม่ต้องรัน `profile setup` ซ้ำ หากโปรไฟล์และ OAuth ใช้งานได้แล้ว
 
-credential ที่บันทึกสำเร็จยังอยู่ในไฟล์ token ของ account นั้น หากชื่อช่องไม่ตรง เพื่อให้เจ้าของใช้กับคำสั่งครั้งถัดไปได้ตามต้องการ; อ่านรายละเอียดที่ [คู่มือติดตั้ง](setup.md). `dry-run` ยังคงทำงาน offline และไม่เปิด OAuth
-
-หากต้องการล็อกอินและยืนยันช่องโดยไม่เริ่ม pilot ให้ใช้ `kt404-youtube auth login --channel "Katy404"` คำสั่งนี้ตรวจโปรไฟล์และช่องจาก API แล้วหยุดโดยไม่มีการส่งคลิป
-
-เมื่อเสร็จ ให้ตรวจคลิปและ thumbnail ใน YouTube Studio จาก URL ที่คำสั่งรายงาน แล้วเจ้าของจึงบันทึกการอนุมัติ:
+เชื่อม OAuth ครั้งแรก:
 
 ```powershell
-kt404-youtube profile approve-pilot --video-id VIDEO_ID
+kt404-youtube auth token --client-secrets ".\client_secrets.json" --account waritnan34811
 ```
 
-การอนุมัติใช้ได้เฉพาะวิดีโอที่โปรแกรมบันทึกว่าอัปโหลดครบและยืนยัน visibility เป็น Private แล้ว หลังจากนั้นให้มีคำสั่งจากเจ้าของแยกอีกครั้งจึงอัปโหลด batch ที่เหลือ:
+ถ้ายังไม่มี credential ตอนรัน `upload` โปรแกรมจะเปิด Google OAuth ให้ลงชื่อเข้าใช้และบันทึกใน account ที่โปรไฟล์กำหนด. โปรแกรมตรวจว่า credential เข้าถึง channel ที่ระบุก่อนส่งคลิป
+
+`profile show` แสดงการตั้งค่าปัจจุบันโดยไม่แสดง secret. เปลี่ยน visibility เริ่มต้นได้ด้วย `kt404-youtube profile set-privacy private`. การยอมรับ visibility และตารางขึ้นกับผลจริงจาก YouTube API ไม่ต้องบันทึกสถานะ audit ในโปรไฟล์ก่อน
+
+## ลองงานที่ล้มเหลวอีกครั้ง
+
+หลังแก้สาเหตุของงานที่ล้มเหลว ให้ระบุไฟล์นั้นและเรียก upload โฟลเดอร์เดิม:
 
 ```powershell
-kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404"
+kt404-youtube profile retry-failed --path "<พาธไฟล์วิดีโอ>"
+kt404-youtube upload --folder "<โฟลเดอร์คลิป>" --channel "<ชื่อช่องหรือ channel ID>"
 ```
 
-แต่ละงานมี checkpoint resumable และกันซ้ำด้วย hash ของไฟล์กับ channel ID ถ้า thumbnail ล้มเหลว งานวิดีโอยังอยู่ในสถานะ retry thumbnail โดยไม่ส่งวิดีโอซ้ำ หาก quota หมด คิวที่เหลือจะหยุด
+ก่อนส่งซ้ำ โปรแกรมตรวจ channel และ hash ของวิดีโอ/thumbnail กับงานเดิม หากไฟล์เปลี่ยนต้องเตรียมงานใหม่ให้ตรงกับไฟล์ปัจจุบัน
 
-ถ้า network/API ขัดข้องชั่วคราวจน retry ในรอบนั้นหมด ระบบจะหยุดคิวและเก็บ resumable session ไว้ ให้รันคำสั่ง `upload` เดิมอีกครั้งเพื่อทำต่อ หาก job ถูกบันทึกเป็น `failed` หลังข้อผิดพลาดถาวรและแก้สาเหตุแล้ว ให้เลือกไฟล์นั้นโดยตรงเพื่อเตรียม retry:
-
-```powershell
-kt404-youtube profile retry-failed --path "G:\My Drive\Projects\Katy404\2026-09\vdo\ชื่อไฟล์.mov"
-kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404"
-```
-
-คำสั่ง retry ตรวจ channel ในโปรไฟล์และ hash ของวิดีโอ/JPG ต้องยังตรงกับงานเดิม จากนั้นคำนวณ metadata ใหม่จากโปรไฟล์ปัจจุบัน และคง hash/channel key เดิมไว้เพื่อป้องกันการส่งซ้ำ หากยังไม่ได้อนุมัติ pilot ระบบจะตั้ง retry เป็น Private เสมอ และจะหยุดเมื่อพบ job/session เดิมที่มี visibility อื่น หากไฟล์เปลี่ยน ให้แก้ปัญหาในต้นฉบับเดิมก่อนหรือจัดการข้อมูลเดิมโดยเจ้าของ; คำสั่งนี้จะไม่เปลี่ยนงานที่ไม่ใช่ `failed`
-
-## เปลี่ยนค่าที่เจ้าของยืนยัน
-
-```powershell
-kt404-youtube profile set-privacy private
-kt404-youtube profile set-api-audit-status passed
-kt404-youtube profile set-asset-rights-status confirmed
-```
-
-ใช้ `set-api-audit-status passed` หลังจากแยกตรวจ YouTube API audit เรียบร้อยแล้วเท่านั้น Public และ Unlisted จะถูกปิดจนกว่าจะผ่าน audit ใช้ `set-asset-rights-status confirmed` เฉพาะเมื่อเจ้าของตรวจสิทธิ์ assets สำหรับ batch ที่จะส่งแล้ว; เป็นการยืนยันของเจ้าของ ไม่ใช่การตรวจลิขสิทธิ์อัตโนมัติ
-
-## ลบข้อมูล API หรือยกเลิก OAuth
+## จัดการ OAuth และข้อมูลในเครื่อง
 
 ```powershell
 kt404-youtube profile delete-account-data --channel-id CHANNEL_ID
 kt404-youtube profile revoke-authorization --channel-id CHANNEL_ID
+kt404-youtube auth accounts
 ```
 
-คำสั่งลบข้อมูลลบ job/API-derived records, resumable state, channel ID และ pilot ID ที่ผูกกับ channel ID ในเครื่อง แต่คงการตั้งค่าปฏิบัติงานของโปรไฟล์ไว้ และไม่ลบวิดีโอบน YouTube การลบ state ทำให้ hash เดิมไม่ถูกกันซ้ำอีกในครั้งถัดไป คำสั่ง revoke ส่งคำขอยกเลิก grant กับ Google, ลบเฉพาะไฟล์ token ของ OAuth account ที่ผูกกับโปรไฟล์ และลบข้อมูลของช่อง หากติดต่อ Google ไม่ได้ ให้ตรวจรายการแอปที่เชื่อมไว้ใน [Google Security permissions](https://security.google.com/settings/security/permissions)
+การลบ account data ลบเฉพาะ job state และข้อมูล YouTube ที่เก็บในเครื่อง ไม่ลบวิดีโอบน YouTube. การ revoke ยกเลิก OAuth และลบ credential ของบัญชีที่โปรไฟล์ใช้
 
-ตัวโปรแกรมเก็บ OAuth ได้หลายชุดเป็นไฟล์แยก เช่น `token_waritnan34811.json`; ตรวจชื่อที่มีได้ด้วย `kt404-youtube auth accounts`; คำสั่ง revoke ลบเฉพาะ credential ที่ผูกกับโปรไฟล์ปัจจุบัน
-
-## Maintenance รายสัปดาห์
-
-`maintenance refresh` ตรวจว่า OAuth ยังใช้ได้และ channel ID ยังเป็นช่องที่บัญชีนี้เป็นเจ้าของ, อัปเดต YouTube API records ที่ครบกำหนด และลบข้อมูลที่หมดอายุ ห้ามใช้ scheduler เรียก `upload` หรือเฝ้าดู `vdo`
-
-ตั้ง Windows Task Scheduler ด้วยผู้ใช้ Windows คนเดียวกับที่เก็บ OAuth token:
-
-1. เลือก **Create Task** ชื่อ `Katy404 YouTube API maintenance` ให้ทำงานสัปดาห์ละครั้งในเวลาที่เครื่องเปิดอยู่ และเปิดการตั้งค่าให้ Task Scheduler เริ่มงานโดยเร็วหากพลาดเวลาเริ่มตามกำหนด
-2. เลือก **Run only when user is logged on** เพื่อให้โปรแกรมเข้าถึง `token_waritnan34811.json` และโปรไฟล์ของบัญชีเจ้าของ
-3. Action: Start a program; Program ใช้พาธเต็มของ `kt404-youtube.exe` ใน environment ที่ติดตั้ง เช่น `<project>\.venv\Scripts\kt404-youtube.exe`; Arguments คือ `maintenance refresh`; Start in คือโฟลเดอร์โปรเจกต์
-4. เพิ่ม trigger ตอนผู้ใช้ sign in เพื่อให้ตรวจข้อมูลหลังเครื่องกลับมาออนไลน์ อย่าตั้ง trigger แบบ file watcher หรือเพิ่มพาธวิดีโอ/คำสั่ง `upload` ใน task
-
-maintenance ล้าง resumable session URL ที่ไม่ได้ใช้งาน 30 วัน แล้วให้การอัปโหลดครั้งถัดไปเริ่ม session ใหม่ หาก OAuth ถูกเพิกถอนหรือช่องไม่อยู่ในบัญชีแล้ว maintenance หยุด ลบข้อมูล API-derived ของช่อง และล้าง channel ID/pilot ID ในโปรไฟล์เพื่อไม่ให้ประมวลผลต่อด้วยข้อมูลเก่า
-
-## ผลตรวจโฟลเดอร์ที่ผู้ใช้อนุมัติ
-
-ตรวจแบบอ่านอย่างเดียวเมื่อ 2026-09-26 ที่ `G:\My Drive\Projects\Katy404\2026-09\vdo`:
-
-- ไฟล์ระดับบนสุด: MOV 24 ไฟล์, JPG 24 ไฟล์
-- scanner จับคู่ MOV/JPG ได้ 24 คู่, พบ issue 0 รายการ และอ่านเฉพาะโฟลเดอร์ `vdo` ไม่ไล่ parent folder
-- `ffprobe` อ่านคลิปได้ครบ: แนวนอน 12, แนวตั้ง 12
-- ไม่มี OAuth, YouTube API request หรือ upload ในการตรวจนี้
-
-นี่เป็น **asset inventory** ไม่ใช่ CLI metadata dry-run เต็ม; ยังไม่ได้ตรวจ title/description/tags เทียบกับโปรไฟล์จริง เพราะเจ้าของยังไม่ได้ตั้ง category, description, Made for Kids, synthetic-media และ Official Artist Channel ในโปรไฟล์ ต้องตั้งค่า/ตรวจข้อเท็จจริงเหล่านี้ก่อน dry-run เต็ม
-
-คลิปนำร่องอัปโหลดเป็น Private แล้ว; เจ้าของยังต้องตรวจใน YouTube Studio และอนุมัติ video ID ก่อน batch. Batch เต็มยังไม่ได้อัปโหลดหรือตั้งเวลา
+`maintenance refresh` ใช้ตรวจ OAuth/channel และล้างข้อมูล API ที่หมดอายุตามรอบ หากตั้ง Windows Task Scheduler ให้เรียกเฉพาะคำสั่งนี้; อย่าตั้ง scheduler ให้เรียก `upload` หรือเฝ้าดูโฟลเดอร์

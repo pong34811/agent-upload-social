@@ -4,9 +4,9 @@
 
 ## สถานะ
 
-- มีเส้นทางตรวจไฟล์แบบ offline, hash กันส่งซ้ำ, OAuth Desktop, resumable upload, thumbnail retry, Private pilot และคำสั่งลบ/ตรวจอายุข้อมูล
+- ตรวจไฟล์ให้อัตโนมัติก่อนส่ง, กันอัปโหลดซ้ำ และส่งต่อได้เมื่อการเชื่อมต่อขัดข้อง
 - ตั้งเวลาเผยแพร่บน YouTube ได้จากคำสั่งที่เจ้าของเรียก โดยวิดีโอจะเป็น Private จนถึงเวลาที่กำหนด
-- ต้องมี Desktop OAuth JSON ที่เจ้าของเลือกใช้ และการยืนยันค่าประจำช่องก่อนเริ่มอัปโหลด
+- ใช้ค่าประจำช่องจาก `profile.json`; OAuth จะเปิดให้ยืนยันเมื่อจำเป็น
 - หลัง clone ให้วาง OAuth Desktop JSON เป็น `client_secrets.json` ใน root ของ repo; credentials และ token ไม่ถูกส่งขึ้น Git. ขั้นตอนสำหรับเครื่องใหม่อยู่ใน [คู่มือติดตั้ง](docs/setup.md)
 
 ## ติดตั้งและเริ่มต้น
@@ -19,57 +19,35 @@ Set-Location .\agent-upload-social
 py -3.13 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e .
 ffprobe -version
-.\.venv\Scripts\kt404-youtube.exe auth token --client-secrets ".\client_secrets.json" --account waritnan34811
-.\.venv\Scripts\kt404-youtube.exe profile show
 ```
 
-ก่อนรัน OAuth ให้วาง OAuth Desktop JSON ที่เจ้าของเลือกไว้เป็น `client_secrets.json` ใน root ของ repo. `auth token` สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API หรืออัปโหลดวิดีโอ. Clone ได้ preset ใน `profile.json` แต่ต้องเตรียม OAuth JSON/token เองและยืนยันค่าที่ยังขาดตาม [คู่มือติดตั้ง](docs/setup.md)
+วาง OAuth Desktop JSON ที่ `client_secrets.json` ใน root ของ repo. จากนั้นสั่ง upload ได้เลย; หากยังไม่มี credential โปรแกรมจะเปิด Google OAuth ให้เอง. โปรเจกต์มี preset ช่องใน `profile.json` แล้ว
 
 อ่าน [คู่มือติดตั้ง](docs/setup.md) ก่อนตั้ง Google Cloud/OAuth
 
 ## ตรวจคลิปและอัปโหลด
 
-ตรวจไฟล์โดยไม่เชื่อมต่อ YouTube (แทน `<โฟลเดอร์คลิป>` ด้วย path ในเครื่อง):
-
-```powershell
-.\.venv\Scripts\kt404-youtube.exe dry-run --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
-```
-
-เมื่อสั่งอัปโหลดอย่างชัดเจน ครั้งแรกจะทำ Private pilot หนึ่งคลิป:
-
-```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811" --limit 1 --force-private
-```
-
-เมื่อสั่ง `upload` หากยังไม่มี OAuth credential โปรแกรมจะเปิดหน้า **local status page** และ Google OAuth ให้เจ้าของลงชื่อเข้าใช้/ยินยอมบนหน้า Google เท่านั้น; หน้าสถานะไม่รับรหัสผ่านและไม่แสดง token หลังบันทึก credential ในไฟล์ของบัญชีที่โปรไฟล์เลือกแล้ว CLI จะตรวจว่าบัญชีนั้นเข้าถึงช่องที่ระบุก่อนเริ่มส่งวิดีโอ
-
-หากต้องการเชื่อมบัญชีและตรวจช่องโดยยังไม่อัปโหลดคลิป ใช้ `auth login --channel "waritnan34811"`; คำสั่งนี้บันทึก credential ในไฟล์ของ OAuth account ที่โปรไฟล์เลือกและจบหลังตรวจช่อง
-
-ตรวจผลใน YouTube Studio แล้วเจ้าของอนุมัติ video ID ก่อน:
-
-```powershell
-.\.venv\Scripts\kt404-youtube.exe profile approve-pilot --video-id VIDEO_ID
-```
-
-คำสั่งอัปโหลด batch เต็มต้องเป็นคำสั่งแยกจากเจ้าของ:
+สั่งอัปโหลดทั้งโฟลเดอร์ด้วยคำสั่งเดียว; `upload` ตรวจไฟล์ให้เองก่อนเริ่มส่ง:
 
 ```powershell
 .\.venv\Scripts\kt404-youtube.exe upload --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
 ```
 
-ดูคำสั่งลบข้อมูล, revoke OAuth และตั้ง maintenance รายสัปดาห์ใน [คู่มือปฏิบัติงาน](docs/operations.md)
+ใช้ `dry-run` เฉพาะเมื่อต้องการตรวจล่วงหน้าโดยไม่เชื่อมต่อ YouTube:
+
+```powershell
+.\.venv\Scripts\kt404-youtube.exe dry-run --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
+```
+
+เมื่อสั่ง `upload` หากยังไม่มี OAuth credential โปรแกรมจะเปิดหน้า **local status page** และ Google OAuth ให้เจ้าของลงชื่อเข้าใช้/ยินยอมบนหน้า Google เท่านั้น; หน้าสถานะไม่รับรหัสผ่านและไม่แสดง token หลังบันทึก credential ในไฟล์ของบัญชีที่โปรไฟล์เลือกแล้ว CLI จะตรวจว่าบัญชีนั้นเข้าถึงช่องที่ระบุก่อนเริ่มส่งวิดีโอ
+
+คู่มือสำหรับ agent อยู่ที่ [.agents/skills/kt404-youtube-upload/SKILL.md](.agents/skills/kt404-youtube-upload/SKILL.md). คำสั่งดูแล OAuth และข้อมูลในเครื่องอยู่ใน [คู่มือปฏิบัติงาน](docs/operations.md)
 
 ### ตั้งเวลาเผยแพร่
 
-การตั้งเวลาเป็น metadata บน YouTube โดยตรง วิดีโอจะอยู่สถานะ Private จนถึง `publishAt`; คำสั่งต้องใช้เวลาที่มี UTC offset และอยู่ในอนาคต ก่อนทำงานต้องผ่าน API audit, ยืนยันสิทธิ์ assets ของ batch และอนุมัติ pilot แล้ว ตามข้อกำหนดของ [YouTube videos.update](https://developers.google.com/youtube/v3/docs/videos/update)
+การตั้งเวลาส่ง `private` + `publishAt` ผ่าน YouTube API โดยตรง; เวลาต้องมี UTC offset และอยู่ในอนาคต โปรแกรมอ่านสถานะกลับจาก API เพื่อยืนยันช่อง, privacy และเวลา ก่อนรายงานสำเร็จ หาก OAuth ยังไม่มี scope สำหรับตั้งเวลา คำสั่ง batch จะเปิด Google OAuth ให้ยืนยันเอง
 
-หากยืนยันสิทธิ์เฉพาะ pilot การยืนยันนั้นผูกกับ video ID ของ pilot และไม่ครอบคลุม batch; full batch ต้องยืนยัน assets ทั้งชุดแยกต่างหาก
-
-OAuth credential เดิมต้องยินยอม scope แก้ metadata ใหม่ก่อน:
-
-```powershell
-.\.venv\Scripts\kt404-youtube.exe auth reauthorize
-```
+โปรแกรมไม่ใช้ค่า `api_audit_passed` ในเครื่องเป็นด่านก่อนเรียก API และไม่เปลี่ยนค่านี้เอง Google อาจจำกัดวิดีโอจาก API project ที่ยังไม่ผ่านการตรวจสอบให้เป็น Private ตามข้อกำหนดของ [YouTube videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert); หาก API ปฏิเสธหรือไม่ยืนยันตาราง โปรแกรมจะรายงานผลจริงและหยุด การยืนยันตารางในปัจจุบันยังไม่ใช่หลักฐานว่าเผยแพร่แล้วในอนาคต
 
 ตั้งเวลาให้วิดีโอ Private ที่โปรแกรมจัดการไว้แล้ว:
 
@@ -83,7 +61,7 @@ OAuth credential เดิมต้องยินยอม scope แก้ meta
 .\.venv\Scripts\kt404-youtube.exe upload --folder "<โฟลเดอร์คลิป>" --channel "UCckWRGExmxGqjWjGZgmZypg" --schedule-from "2026-10-01T07:30:00+07:00"
 ```
 
-โหมดนี้ตรวจไฟล์ทั้งหมดก่อนเริ่ม, ปฏิเสธวิดีโอจัตุรัสหรือจำนวนแนวนอน/แนวตั้งไม่เท่ากัน, และไม่ใช้ `--limit`/`--force-private`; คลิปที่อัปโหลดครบอยู่แล้วจะถูกตั้งเวลาผ่าน API โดยไม่อัปโหลดซ้ำ การสั่ง batch ยังเป็นคำสั่งแยกจากการตรวจและอนุมัติ pilot
+โหมดนี้ตรวจไฟล์ทั้งหมดก่อนเริ่ม, ปฏิเสธวิดีโอจัตุรัสหรือจำนวนแนวนอน/แนวตั้งไม่เท่ากัน, และไม่ใช้ `--limit`/`--force-private`; คลิปที่อัปโหลดครบอยู่แล้วจะถูกตั้งเวลาผ่าน API โดยไม่อัปโหลดซ้ำ
 
 ## พื้นที่เก็บข้อมูล
 
@@ -93,4 +71,4 @@ OAuth credential เดิมต้องยินยอม scope แก้ meta
 - OAuth Desktop JSON: `client_secrets.json` ที่โฟลเดอร์โปรเจกต์; `.gitignore` กันไฟล์ credentials และฐานข้อมูลไม่ให้เข้า Git
 - วิดีโอต้นฉบับ/ภาพ JPG ยังคงอยู่ในโฟลเดอร์ที่เจ้าของเลือก
 
-ใช้ Google YouTube Data API v3; ผู้ใช้เป็นผู้เลือก visibility และยืนยันสิทธิ์ของ audio/visual/game footage/overlay, audience, synthetic media และ metadata ของแต่ละโปรไฟล์
+ใช้ Google YouTube Data API v3; ผู้ใช้เป็นผู้เลือก visibility, audience, synthetic media และ metadata ของแต่ละโปรไฟล์

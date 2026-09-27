@@ -39,10 +39,6 @@ from .youtube import (
 )
 
 
-class PilotApprovalRequired(RuntimeError):
-    """Raised until the owner reviews the first private pilot video."""
-
-
 class BatchRunner:
     """Run local preflight and batch uploads only for an explicitly selected folder."""
 
@@ -107,9 +103,7 @@ class BatchRunner:
         changed = self._changed_file_status(job)
         if changed is not None:
             raise JobStateError(f"Cannot retry because the source or paired thumbnail changed ({changed})")
-        effective_privacy = (
-            "private" if not self.profile.approved_pilot_video_id else self.profile.privacy_status
-        )
+        effective_privacy = self.profile.privacy_status
         validate_upload_profile(self.profile, requested_privacy=effective_privacy)
         candidate = MediaCandidate(
             path=job.path,
@@ -152,15 +146,6 @@ class BatchRunner:
             self.profile,
             requested_privacy="public" if scheduled_mode else effective_privacy,
         )
-        if scheduled_mode and not self.profile.approved_pilot_video_id:
-            raise PilotApprovalRequired(
-                "Review and approve the Private pilot before scheduling a publishing batch"
-            )
-        if not self.profile.approved_pilot_video_id and not (limit == 1 and force_private):
-            raise PilotApprovalRequired(
-                "Upload one Private pilot first, inspect it in YouTube Studio, then approve its video ID"
-            )
-
         channel = self._resolve_owned_channel(requested_channel)
         candidates, issues = scan_folder(Path(folder))
         report_items = [
@@ -361,40 +346,6 @@ class BatchRunner:
                     stopped_reason = "scheduled_update_failed"
                     break
 
-            if not self.profile.approved_pilot_video_id:
-                actual_visibility = job.api_fields.get("privacy_status")
-                wrong_visibility = job.metadata.privacy_status != "private" or (
-                    job.state in {"uploaded", "complete"}
-                    and actual_visibility not in {None, "private"}
-                )
-                if wrong_visibility and job.state in {"discovered", "validated"}:
-                    try:
-                        validate_upload_profile(self.profile, requested_privacy="private")
-                    except ProfileError as exc:
-                        items.append(
-                            UploadItemResult(status="failed", source_path=job.path, error_code=self._error_code(exc))
-                        )
-                        continue
-                    self.store.update_preupload_metadata(
-                        job.id, replace(job.metadata, privacy_status="private")
-                    )
-                    job = self.store.get_job(job.id)
-                    wrong_visibility = False
-                if wrong_visibility and job.state not in {"failed", "skipped"}:
-                    items.append(
-                        UploadItemResult(
-                            status="failed",
-                            source_path=job.path,
-                            video_id=job.video_id,
-                            video_url=self._video_url(job.video_id),
-                            error_code="pilot_privacy_conflict",
-                        )
-                    )
-                    for pending in jobs[index + 1 :]:
-                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
-                    stopped_reason = "pilot_privacy_conflict"
-                    break
-
             if job.state == "complete":
                 if scheduled_at is not None:
                     items.append(self._uploaded_item(job, status="scheduled_existing"))
@@ -456,7 +407,14 @@ class BatchRunner:
             except QuotaExceeded:
                 stopped_reason = "quota"
                 current = self.store.get_job(job.id)
-                if current.state == "uploaded" and current.video_id:
+                if scheduled_at is not None and current.video_id:
+                    items.append(UploadItemResult(
+                        status="failed", source_path=job.path,
+                        video_id=current.video_id,
+                        video_url=self._video_url(current.video_id),
+                        error_code="quota",
+                    ))
+                elif current.state == "uploaded" and current.video_id:
                     self.store.mark_thumbnail_result(job.id, success=False)
                     current = self.store.get_job(job.id)
                     items.append(
@@ -475,6 +433,18 @@ class BatchRunner:
                 for pending in jobs[index + 1 :]:
                     items.append(UploadItemResult(status="pending_quota", source_path=pending.path))
                 break
+            except VideoSchedulingError as exc:
+                current = self.store.get_job(job.id)
+                items.append(UploadItemResult(
+                    status="failed", source_path=job.path,
+                    video_id=current.video_id,
+                    video_url=self._video_url(current.video_id),
+                    error_code=exc.error_code,
+                ))
+                for pending in jobs[index + 1 :]:
+                    items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                stopped_reason = exc.error_code
+                break
             except Exception as exc:
                 current = self.store.get_job(job.id)
                 if isinstance(exc, (ScheduledPublishTimeExpired, UploadCompletionPending)):
@@ -492,6 +462,17 @@ class BatchRunner:
                     for pending in jobs[index + 1 :]:
                         items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
                     stopped_reason = error_code
+                    break
+                if scheduled_at is not None and current.video_id:
+                    items.append(UploadItemResult(
+                        status="failed", source_path=job.path,
+                        video_id=current.video_id,
+                        video_url=self._video_url(current.video_id),
+                        error_code="schedule_unconfirmed",
+                    ))
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "schedule_unconfirmed"
                     break
                 if current.state == "uploaded" and current.video_id:
                     thumbnail_item, quota = self._set_thumbnail(
@@ -575,7 +556,14 @@ class BatchRunner:
         list_owned = getattr(self.api, "list_owned_channels", None)
         if not callable(list_owned):
             raise ChannelResolutionError("YouTube API cannot verify channels owned by the signed-in account")
-        channel = resolve_channel(requested_channel, list_owned())
+        lookup = requested_channel
+        if (
+            self.profile.channel_id
+            and isinstance(self.profile.channel_alias, str)
+            and requested_channel.strip().casefold() == self.profile.channel_alias.strip().casefold()
+        ):
+            lookup = self.profile.channel_id
+        channel = resolve_channel(lookup, list_owned())
         if self.profile.channel_id and self.profile.channel_id != channel.channel_id:
             raise ChannelResolutionError("Requested channel does not match the channel saved in this profile")
         if not self.profile.channel_id:

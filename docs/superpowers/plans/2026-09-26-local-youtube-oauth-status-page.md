@@ -19,7 +19,7 @@
 - เก็บ OAuth credential ใน Windows Credential Manager; ห้ามเขียน token ลงไฟล์, log, URL หรือ HTML.
 - ตรวจ configuration ก่อนเปิด browser; ใช้โฟลเดอร์และ channel ที่ผู้ใช้ระบุเท่านั้น.
 - ใช้ Python standard library สำหรับหน้า local; ไม่มี frontend dependency, CDN, analytics หรือ resource จาก third party.
-- ไม่เปลี่ยนข้อกำหนด Private pilot และการอนุมัติแยกก่อน batch เต็ม.
+- หลัง OAuth และ preflight ผ่าน ให้คำสั่ง upload เดียวส่ง batch ได้.
 - OAuth consent ยังคงเป็นการกระทำของเจ้าของในหน้า Google; หาก OAuth ล้มเหลวหรือบันทึก credential ไม่สำเร็จต้องหยุดก่อน upload.
 
 ## Review Focus
@@ -216,7 +216,7 @@ Run: `pytest tests/test_cli.py tests/test_setup_docs.py tests/test_runner.py -q`
 Expected: focused CLI, documentation, and channel gate tests pass.
 
 Run: `pytest -q`
-Expected: the full suite passes with all existing upload, pilot, channel, and retry gates intact.
+Expected: the full suite passes with upload, channel, and retry behavior intact.
 
 - [x] **Step 5: Review whitespace and commit documentation/regressions**
 

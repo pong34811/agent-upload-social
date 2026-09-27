@@ -18,7 +18,7 @@
 - บันทึก OAuth credential ใน Windows Credential Manager ตาม implementation ปัจจุบัน; ห้ามเขียน token ลงไฟล์, log, URL หรือ HTML
 - ตรวจ configuration ก่อนเปิด browser; ใช้โฟลเดอร์และ channel ที่ผู้ใช้ระบุเท่านั้น
 - หาก consent ถูกปฏิเสธ, OAuth ล้มเหลว, เก็บ credential ไม่สำเร็จ, หรือไม่พบ channel เป้าหมายที่ตรงกัน ให้หยุดก่อนส่งวิดีโอ
-- ไม่เปลี่ยนข้อกำหนด Private pilot และการอนุมัติแยกก่อน batch เต็ม
+- เมื่อ OAuth พร้อมและ preflight ผ่าน ให้เริ่ม batch ตามคำสั่งโดยไม่ต้องอนุมัติแยก
 
 ## สถานะปัจจุบัน
 
@@ -53,7 +53,7 @@
 - ใช้ status endpoint แบบ read-only; response เป็น enum และข้อความคงที่ที่ allowlist ไว้ ไม่ส่ง raw exception, OAuth URL, response body หรือ credential
 - ใช้ route/session identifier สุ่มต่อการทำงานหนึ่งครั้ง และป้องกันไม่ให้หน้าอื่นอ่านสถานะของ session โดยเดา URL ได้
 - ใส่ security headers ที่เหมาะสมกับหน้า static (เช่น CSP แบบไม่มี external source และ `Cache-Control: no-store`)
-- คงการตรวจ Desktop OAuth client, profile validity, privacy gate และ pilot gate ที่มีอยู่ โดยไม่บังคับ project ID prefix
+- คงการตรวจ Desktop OAuth client, profile validity, channel ownership และ hash ของไฟล์
 - การ consent ยังคงเป็นการกระทำของผู้ใช้ในหน้า Google; ตัวโปรแกรมไม่ยอมรับ consent แทนเจ้าของ
 
 ## การจัดการข้อผิดพลาด
@@ -72,11 +72,11 @@
 4. เมื่อผู้ใช้ปฏิเสธ/ยกเลิก, client ผิด project, credential backend ล้มเหลว หรือ channel ไม่ตรง จะไม่มีการเรียก upload endpoint
 5. หลังสถานะ OAuth ปลายทางถูกแสดงหรือ timeout สั้นหมด ไม่เหลือ local HTTP server เปิดค้าง และไม่มี token ในไฟล์/log/HTML/URL
 6. dry-run ยังคง offline ไม่เปิด OAuth หรือ local login page
-7. Pilot/batch behavior และข้อกำหนดว่าต้องสั่ง upload อย่างชัดเจนยังคงเดิม
+7. Batch ส่งได้ในการเรียก upload ครั้งเดียวหลังตรวจไฟล์และช่องผ่าน
 
 ## นอกขอบเขต
 
 - เว็บที่เผยแพร่บนอินเทอร์เน็ตหรือรับการ login จากเครื่องอื่น
 - แบบฟอร์มที่รับ Google password, OTP หรือแสดง/ดาวน์โหลด token
 - dashboard จัดการคลิป, browser automation เพื่อกด consent แทนผู้ใช้, หรือการอัปโหลดอัตโนมัติหลังผู้ใช้ยังไม่ได้สั่ง
-- เปลี่ยน OAuth scopes, Credential Manager backend, channel ownership rules, หรือ upload/retry/pilot logic
+- เปลี่ยน Credential Manager backend, channel ownership rules, หรือ upload/retry logic

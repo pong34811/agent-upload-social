@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Schedule only after API audit, asset-rights confirmation, and pilot approval.
+- Schedule only after the YouTube API audit and channel checks pass.
 - Use only the exact user-selected folder; never scan a parent, neighbor, or drive.
 - Keep the scheduled video private until its future `publishAt` timestamp.
 - Require an explicit CLI call; do not add watchers, delayed local jobs, or automatic uploads.
@@ -49,7 +49,6 @@
 - [ ] Fetch current video status and channel ID, reject non-owned/non-private videos, and update status while preserving existing mutable fields.
 - [ ] Reject schedule timestamps without an offset or at/before the current time.
 - [ ] Manually inspect error handling to ensure API response bodies are never surfaced.
-- [ ] Keep the pilot's prior rights confirmation scoped to its exact video ID; do not convert it into batch-wide rights confirmation.
 
 ### Task 2: CLI scheduling and paired batch planning
 
@@ -66,7 +65,7 @@
 - `upload --schedule-from RFC3339` assigns same-day timestamps to the Nth landscape and Nth portrait.
 
 - [ ] Plan slots deterministically from sorted filenames, reject square media or unequal orientation counts, and require a complete preflight before side effects.
-- [ ] Gate scheduled public publishing on API audit, rights, and pilot approval before OAuth is loaded.
+- [ ] Gate scheduled public publishing on the API audit before OAuth is loaded; request missing OAuth scope during the scheduled upload command.
 - [ ] Schedule complete local jobs in place and upload pending jobs with Private plus `publishAt`.
 - [ ] Verify CLI help and source syntax without calling YouTube or uploading files.
 
@@ -79,4 +78,4 @@
 
 - [ ] Document reauthorization, the one-video schedule command, paired batch scheduling, and the required profile gates.
 - [ ] Clarify that no background uploader or folder watcher is introduced.
-- [ ] Record that the existing pilot still requires Studio review and explicit approval before it can be scheduled.
+- [ ] Document direct batch scheduling without a separate review/approval step.

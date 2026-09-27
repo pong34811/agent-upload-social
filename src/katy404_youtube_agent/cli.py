@@ -27,7 +27,7 @@ from .profile import (
     ProfileStore,
     validate_upload_profile,
 )
-from .runner import BatchRunner, PilotApprovalRequired
+from .runner import BatchRunner
 from .scheduling import format_publish_at, parse_publish_at
 from .store import JobStateError, JobStore
 from .youtube import VideoSchedulingError, YouTubeApi
@@ -110,12 +110,8 @@ def _build_parser() -> argparse.ArgumentParser:
     profile_commands.add_parser("show", help="แสดงค่าที่ตั้งไว้โดยไม่แสดง token")
     privacy = profile_commands.add_parser("set-privacy", help="เปลี่ยนความเป็นส่วนตัวเริ่มต้น")
     privacy.add_argument("status", choices=("private", "unlisted", "public"))
-    audit = profile_commands.add_parser("set-api-audit-status", help="บันทึกผล YouTube API audit")
+    audit = profile_commands.add_parser("set-api-audit-status", help="บันทึกข้อมูล audit เดิม; ไม่มีผลต่อการเรียก API")
     audit.add_argument("status", choices=("passed", "not-passed"))
-    rights = profile_commands.add_parser("set-asset-rights-status", help="แก้ไขการรับรองสิทธิ์ assets")
-    rights.add_argument("status", choices=("confirmed", "not-confirmed"))
-    pilot = profile_commands.add_parser("approve-pilot", help="อนุมัติคลิปนำร่องหลังตรวจใน Studio")
-    pilot.add_argument("--video-id", required=True)
     delete_data = profile_commands.add_parser("delete-account-data", help="ลบข้อมูล API ของช่องในเครื่อง")
     delete_data.add_argument("--channel-id")
     retry_failed = profile_commands.add_parser("retry-failed", help="เตรียมงานที่ล้มเหลวหนึ่งไฟล์ให้ลองใหม่")
@@ -229,28 +225,12 @@ class CliApp:
             updated = replace(profile, privacy_status=args.status)
             self._save_profile(updated)
             print(f"ตั้งค่าความเป็นส่วนตัวเริ่มต้นเป็น {args.status}")
-            if args.status != "private" and not updated.api_audit_passed:
-                print("การอัปโหลด Unlisted/Public ยังถูกปิดจนกว่าจะผ่าน YouTube API audit")
             return 0
         if action == "set-api-audit-status":
             updated = replace(profile, api_audit_passed=(args.status == "passed"))
             self._save_profile(updated)
-            print(f"บันทึกสถานะ YouTube API audit: {args.status}")
+            print(f"บันทึกข้อมูล audit เดิม: {args.status} (ไม่มีผลต่อการเรียก API)")
             return 0
-        if action == "set-asset-rights-status":
-            updated = replace(
-                profile,
-                asset_rights_confirmed=(args.status == "confirmed"),
-                pilot_asset_rights_confirmed_video_id=(
-                    profile.pilot_asset_rights_confirmed_video_id
-                    if args.status == "confirmed" else None
-                ),
-            )
-            self._save_profile(updated)
-            print(f"บันทึกสถานะการรับรองสิทธิ์ assets: {args.status}")
-            return 0
-        if action == "approve-pilot":
-            return self._approve_pilot(profile, args.video_id)
         if action == "delete-account-data":
             channel_id = args.channel_id or profile.channel_id
             if not channel_id:
@@ -258,7 +238,7 @@ class CliApp:
                 return 2
             removed = self._delete_account_data(profile, channel_id)
             print(f"ลบระเบียนในเครื่อง {removed} รายการสำหรับช่อง {channel_id} แล้ว")
-            print("ลบ channel ID และสถานะอนุมัติ pilot ที่เก็บไว้ในโปรไฟล์ของช่องนี้แล้ว")
+            print("ลบ channel ID ที่เก็บไว้ในโปรไฟล์ของช่องนี้แล้ว")
             print("การทำงานนี้ไม่ได้ลบวิดีโอออกจาก YouTube")
             return 0
         if action == "retry-failed":
@@ -358,8 +338,6 @@ class CliApp:
         made_for_kids = self._prompt_bool("เนื้อหานี้ทำเพื่อเด็กโดยเจตนาหรือไม่ (yes/no)")
         synthetic = self._prompt_bool("มีเนื้อหาสังเคราะห์/ดัดแปลงที่ต้องเปิดเผยหรือไม่ (yes/no)")
         official_artist = self._prompt_bool("ช่องนี้เป็น Official Artist Channel หรือไม่ (yes/no)")
-        rights_confirmed = self._prompt_bool("คุณมีสิทธิ์ใช้เสียง ภาพ เกม และ overlay ในไฟล์ชุดนี้หรือไม่ (yes/no)")
-
         profile = UploadProfile(
             channel_alias=selected_channel.display_name,
             client_secrets_path=client_path,
@@ -372,16 +350,12 @@ class CliApp:
             made_for_kids=made_for_kids,
             contains_synthetic_media=synthetic,
             is_official_artist_channel=official_artist,
-            asset_rights_confirmed=rights_confirmed,
             shorts_title_suffix=shorts_suffix,
         )
         self.profile_store.save(profile)
         self.runner.profile = profile
-        if rights_confirmed:
-            print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; พร้อมตรวจคลิปด้วย dry-run")
-        else:
-            print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; ต้องยืนยันสิทธิ์ assets ก่อนอัปโหลด")
-        print("ยังไม่มีการอัปโหลดวิดีโอ; ต้องสั่ง upload แยกหลังตรวจ dry-run")
+        print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; พร้อมอัปโหลด")
+        print("ยังไม่ได้อัปโหลดวิดีโอ; สั่ง upload เมื่อพร้อม")
         return 0
 
     def _dry_run(self, folder: Path, channel: str) -> int:
@@ -500,13 +474,9 @@ class CliApp:
         if profile is None:
             return 2
         schedule_start = parse_publish_at(args.schedule_from) if args.schedule_from else None
-        first_pilot = not profile.approved_pilot_video_id
-        limit = 1 if first_pilot else args.limit
-        force_private = True if first_pilot else args.force_private
+        limit = args.limit
+        force_private = args.force_private
         if schedule_start is not None:
-            if first_pilot:
-                print("ยังตั้งเวลา batch ไม่ได้: ตรวจและอนุมัติ Private pilot ก่อน", file=sys.stderr)
-                return 2
             if args.limit is not None or args.force_private:
                 print("โหมดตั้งเวลาใช้กับ batch เต็มเท่านั้น ห้ามใช้ --limit หรือ --force-private", file=sys.stderr)
                 return 2
@@ -516,11 +486,14 @@ class CliApp:
         # Consent and configuration are checked before loading OAuth credentials or opening a browser.
         validate_upload_profile(profile, requested_privacy=requested_privacy)
         credential_store = self._get_credential_store()
-        if schedule_start is not None and not credential_store.has_required_scopes(profile.oauth_account_key):
-            print("OAuth ยังไม่มีสิทธิ์แก้ metadata; รัน kt404-youtube auth reauthorize ก่อนตั้งเวลา", file=sys.stderr)
-            return 2
         try:
-            credentials = credential_store.load(profile.oauth_account_key)
+            if schedule_start is not None and not credential_store.has_required_scopes(profile.oauth_account_key):
+                print("การตั้งเวลาต้องยืนยัน OAuth เพิ่ม; กำลังเปิด Google OAuth")
+                credentials = self._authorize_for_account(
+                    profile.client_secrets_path, credential_store, profile.oauth_account_key
+                )
+            else:
+                credentials = credential_store.load(profile.oauth_account_key)
             if credentials is None:
                 credentials = self._authorize_for_account(
                     profile.client_secrets_path, credential_store, profile.oauth_account_key
@@ -549,12 +522,9 @@ class CliApp:
             print(f"ข้าม: {skipped_count}")
             print(f"ความเป็นส่วนตัว: {privacy_status}")
             print(f"โปรไฟล์ revision: {self._profile_revision()}")
-            print("คำประกาศของเจ้าของสำหรับ batch นี้:")
-            print(f"สิทธิ์ assets: {'ยืนยัน' if current_profile.asset_rights_confirmed else 'ยังไม่ยืนยัน'}")
             print(f"Made for Kids: {'ใช่' if current_profile.made_for_kids else 'ไม่ใช่'}")
             print(f"Synthetic media: {'ใช่' if current_profile.contains_synthetic_media else 'ไม่ใช่'}")
             print(f"Official Artist Channel: {'ใช่' if current_profile.is_official_artist_channel else 'ไม่ใช่'}")
-            print(f"โหมด: {'Private pilot' if first_pilot else 'batch'}")
 
         def report_schedule_plan(schedule_plan: dict[Path, datetime]) -> None:
             if not schedule_plan:
@@ -590,7 +560,7 @@ class CliApp:
                         schedule_from=schedule_start,
                         on_schedule_plan=report_schedule_plan if schedule_start is not None else None,
                     )
-                except (ProfileError, PilotApprovalRequired, ValueError) as retry_exc:
+                except (ProfileError, ValueError) as retry_exc:
                     print(f"ยกเลิกก่อนเริ่มอัปโหลด: {self._safe_error(retry_exc)}", file=sys.stderr)
                     return 2
                 except AuthorizationRevokedError as retry_exc:
@@ -603,7 +573,7 @@ class CliApp:
                     else:
                         print(f"อัปโหลดไม่สำเร็จ ({type(retry_exc).__name__})", file=sys.stderr)
                     return 1
-            elif isinstance(exc, (ProfileError, PilotApprovalRequired, ValueError)):
+            elif isinstance(exc, (ProfileError, ValueError)):
                 print(f"ยกเลิกก่อนเริ่มอัปโหลด: {self._safe_error(exc)}", file=sys.stderr)
                 return 2
             elif isinstance(exc, AuthorizationRevokedError):
@@ -618,11 +588,6 @@ class CliApp:
                 return 1
 
         self._print_report(report)
-        if first_pilot:
-            pilot = next((item for item in report.items if item.video_url and item.status.startswith("uploaded")), None)
-            if pilot is not None:
-                print(f"คลิปนำร่อง Private: {pilot.video_url}")
-                print("ตรวจคลิปใน YouTube Studio แล้วจึงสั่ง profile approve-pilot --video-id <ID>")
         thumbnail_errors = any(item.status == "uploaded_thumbnail_failed" for item in report.items)
         if report.failed_count or report.pending_count or report.stopped_reason or thumbnail_errors:
             return 1
@@ -633,18 +598,10 @@ class CliApp:
         if profile is None:
             return 2
         publish_at = parse_publish_at(publish_at_text)
-        if not profile.approved_pilot_video_id:
-            print("ยังตั้งเวลาเผยแพร่ไม่ได้: ตรวจและอนุมัติ Private pilot ก่อน", file=sys.stderr)
-            return 2
-        pilot_rights_confirmed = (
-            video_id == profile.approved_pilot_video_id
-            and video_id == profile.pilot_asset_rights_confirmed_video_id
-        )
         try:
             validate_upload_profile(
                 profile,
                 requested_privacy="public",
-                asset_rights_confirmed=profile.asset_rights_confirmed or pilot_rights_confirmed,
             )
         except ProfileError as exc:
             print(f"ยังตั้งเวลาเผยแพร่ไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
@@ -694,21 +651,6 @@ class CliApp:
             return 1
         print(f"ตั้งเวลาเผยแพร่สำเร็จ: https://www.youtube.com/watch?v={video_id}")
         print(f"YouTube คงวิดีโอเป็น Private จนถึง {format_publish_at(publish_at)}")
-        return 0
-
-    def _approve_pilot(self, profile: UploadProfile, video_id: str) -> int:
-        if not profile.channel_id:
-            print("ยังไม่มี channel ID ที่ยืนยันจาก OAuth", file=sys.stderr)
-            return 2
-        matching = [job for job in self.store.list_jobs(profile.channel_id) if job.video_id == video_id]
-        if not matching or not any(
-            job.state == "complete" and job.api_fields.get("privacy_status") == "private"
-            for job in matching
-        ):
-            print("อนุมัติไม่ได้: ต้องเป็นคลิปที่อัปโหลดครบและยืนยันว่า Private แล้ว", file=sys.stderr)
-            return 2
-        self._save_profile(replace(profile, approved_pilot_video_id=video_id))
-        print(f"บันทึกการตรวจคลิปนำร่อง {video_id} แล้ว คำสั่งอัปโหลดครั้งถัดไปจึงเริ่ม batch ได้")
         return 0
 
     def _revoke(self, profile: UploadProfile, channel_id: str) -> int:
@@ -818,8 +760,6 @@ class CliApp:
             self._save_profile(replace(
                 profile,
                 channel_id=None,
-                approved_pilot_video_id=None,
-                pilot_asset_rights_confirmed_video_id=None,
             ))
         return removed
 
@@ -883,13 +823,7 @@ class CliApp:
         print(f"Channel ID: {profile.channel_id or 'ยังไม่ได้ยืนยัน'}")
         print(f"OAuth account: {profile.oauth_account_key}")
         print(f"ความเป็นส่วนตัวเริ่มต้น: {profile.privacy_status}")
-        print(f"YouTube API audit: {'ผ่าน' if profile.api_audit_passed else 'ยังไม่ผ่าน'}")
         print(f"OAuth client path: {profile.client_secrets_path or 'ยังไม่ได้ตั้งค่า'}")
-        print(f"สิทธิ์ assets: {'ยืนยัน' if profile.asset_rights_confirmed else 'ยังไม่ยืนยัน'}")
-        print(
-            "สิทธิ์ assets สำหรับ pilot: "
-            + (f"ยืนยันสำหรับ {profile.pilot_asset_rights_confirmed_video_id}" if profile.pilot_asset_rights_confirmed_video_id else "ไม่มีการยืนยันแยก")
-        )
         print("ไม่แสดง OAuth token หรือ client secret")
 
     def _profile_revision(self) -> str:

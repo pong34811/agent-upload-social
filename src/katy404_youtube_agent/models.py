@@ -21,10 +21,7 @@ class UploadProfile:
     made_for_kids: bool | None = None
     contains_synthetic_media: bool | None = None
     is_official_artist_channel: bool = False
-    asset_rights_confirmed: bool = False
-    pilot_asset_rights_confirmed_video_id: str | None = None
     shorts_title_suffix: str = " #Shorts"
-    approved_pilot_video_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

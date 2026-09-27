@@ -11,6 +11,7 @@ from katy404_youtube_agent.auth import (
     AuthorizationRevokedError,
     ChannelRef,
     ChannelResolutionError,
+    OWNER_ACCOUNT_KEY,
 )
 from katy404_youtube_agent.cli import CliApp, OAuthService
 from katy404_youtube_agent.local_oauth_status import LocalOAuthStatusPage
@@ -80,28 +81,7 @@ class CliHarness:
 
 @pytest.fixture
 def cli(valid_profile, store):
-    profile = replace(valid_profile, approved_pilot_video_id="approved-private-video")
-    return CliHarness(profile, store)
-
-
-@pytest.fixture
-def cli_unapproved_pilot(valid_profile, store):
-    return CliHarness(replace(valid_profile, approved_pilot_video_id=None), store)
-
-
-@pytest.fixture
-def cli_approved_pilot(cli):
-    return cli
-
-
-@pytest.fixture
-def cli_with_completed_private_pilot(valid_profile, store, candidate, metadata):
-    profile = replace(valid_profile, approved_pilot_video_id=None)
-    job = store.get_or_create_job(candidate, "UC123", metadata)
-    store.mark_video_uploaded(job.id, "video-123", NOW)
-    store.mark_thumbnail_result(job.id, success=True)
-    store.refresh_api_record(job.id, NOW, {"privacy_status": "private"})
-    return CliHarness(profile, store)
+    return CliHarness(valid_profile, store)
 
 
 def test_upload_command_prints_channel_count_and_visibility_before_upload(cli, capsys):
@@ -113,7 +93,6 @@ def test_upload_command_prints_channel_count_and_visibility_before_upload(cli, c
     assert "วิดีโอ: 2" in output
     assert "ข้าม: 1" in output
     assert "ความเป็นส่วนตัว: private" in output
-    assert "สิทธิ์ assets: ยืนยัน" in output
     assert cli.runner.upload.call_count == 1
 
 
@@ -185,7 +164,8 @@ def test_oauth_service_reports_success_in_page_states(monkeypatch):
     page = RecordingOAuthStatusPage()
     credential = object()
 
-    def authorize(_path, _store, *, on_authorization_started):
+    def authorize(_path, _store, *, account_key=OWNER_ACCOUNT_KEY, on_authorization_started=None):
+        assert account_key == OWNER_ACCOUNT_KEY
         on_authorization_started()
         return credential
 
@@ -201,7 +181,8 @@ def test_oauth_service_reports_success_in_page_states(monkeypatch):
 def test_oauth_service_marks_stopped_and_finishes_after_authorization_error(monkeypatch):
     page = RecordingOAuthStatusPage()
 
-    def authorize(_path, _store, *, on_authorization_started):
+    def authorize(_path, _store, *, account_key=OWNER_ACCOUNT_KEY, on_authorization_started=None):
+        assert account_key == OWNER_ACCOUNT_KEY
         on_authorization_started()
         raise RuntimeError("private OAuth response body")
 
@@ -217,7 +198,8 @@ def test_oauth_service_marks_stopped_and_finishes_after_authorization_error(monk
 def test_oauth_service_marks_stopped_when_owner_interrupts_authorization(monkeypatch):
     page = RecordingOAuthStatusPage()
 
-    def authorize(_path, _store, *, on_authorization_started):
+    def authorize(_path, _store, *, account_key=OWNER_ACCOUNT_KEY, on_authorization_started=None):
+        assert account_key == OWNER_ACCOUNT_KEY
         on_authorization_started()
         raise KeyboardInterrupt()
 
@@ -312,17 +294,7 @@ def test_channel_mismatch_after_authorization_keeps_stored_credential(cli):
     assert cli.credentials.load("owner") is credential
 
 
-def test_first_upload_runs_private_pilot_until_user_review(cli_unapproved_pilot):
-    cli = cli_unapproved_pilot
-    result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
-
-    assert result == 0
-    assert cli.runner.upload.call_args.kwargs["limit"] == 1
-    assert cli.runner.upload.call_args.kwargs["force_private"] is True
-
-
-def test_approved_pilot_allows_the_requested_full_batch(cli_approved_pilot):
-    cli = cli_approved_pilot
+def test_explicit_upload_runs_full_batch_without_a_separate_review_step(cli):
     result = cli.app.run(["upload", "--folder", "media", "--channel", "Katy404"])
 
     assert result == 0
@@ -340,7 +312,6 @@ def test_revoke_authorization_revokes_token_and_removes_local_api_data(cli, cand
     cli.credentials.revoke.assert_called_once_with("owner")
     assert cli.credentials.load("UC123") is None
     assert cli.profile.channel_id is None
-    assert cli.profile.approved_pilot_video_id is None
 
 
 def test_revoke_authorization_rejects_channel_mismatch_before_revoking(cli, candidate, metadata):
@@ -352,12 +323,11 @@ def test_revoke_authorization_rejects_channel_mismatch_before_revoking(cli, cand
     cli.credentials.revoke.assert_not_called()
     assert cli.store.list_jobs("UC123")
     assert cli.profile.channel_id == "UC123"
-    assert cli.profile.approved_pilot_video_id == "approved-private-video"
 
 
 def test_profile_setup_collects_owner_declarations_without_policy_prompt(cli, monkeypatch):
     answers = iter([
-        "1", "", "", "20", "private", "gaming, thailand", "no", "no", "no", "yes",
+        "1", "", "", "20", "private", "gaming, thailand", "no", "no", "no",
     ])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
 
@@ -367,7 +337,6 @@ def test_profile_setup_collects_owner_declarations_without_policy_prompt(cli, mo
 
     assert result == 0
     created = cli.profile_store.save.call_args.args[0]
-    assert created.asset_rights_confirmed is True
     assert created.tags == ("gaming", "thailand")
 
 
@@ -387,32 +356,13 @@ def test_profile_show_never_displays_client_json_contents(cli, capsys):
     assert "token" in output.casefold()
 
 
-def test_approve_pilot_accepts_only_a_completed_private_video(cli_with_completed_private_pilot):
-    cli = cli_with_completed_private_pilot
-
-    result = cli.app.run(["profile", "approve-pilot", "--video-id", "video-123"])
-
-    assert result == 0
-    assert cli.profile.approved_pilot_video_id == "video-123"
-
-
-def test_approve_pilot_rejects_video_without_confirmed_private_status(cli_with_completed_private_pilot):
-    cli = cli_with_completed_private_pilot
-    cli.store.delete_account_data("UC123")
-
-    result = cli.app.run(["profile", "approve-pilot", "--video-id", "video-123"])
-
-    assert result == 2
-    assert cli.profile.approved_pilot_video_id is None
-
-
-def test_profile_privacy_and_audit_commands_update_only_declared_values(cli):
+def test_profile_privacy_and_legacy_audit_commands_update_only_declared_values(cli, capsys):
     assert cli.app.run(["profile", "set-privacy", "public"]) == 0
     assert cli.profile.privacy_status == "public"
+    assert cli.profile.api_audit_passed is False
+    assert "audit" not in capsys.readouterr().out.casefold()
     assert cli.app.run(["profile", "set-api-audit-status", "passed"]) == 0
     assert cli.profile.api_audit_passed is True
-    assert cli.app.run(["profile", "set-asset-rights-status", "not-confirmed"]) == 0
-    assert cli.profile.asset_rights_confirmed is False
 
 
 def test_profile_delete_account_data_explains_remote_videos_remain(cli, candidate, metadata, capsys):
@@ -423,7 +373,6 @@ def test_profile_delete_account_data_explains_remote_videos_remain(cli, candidat
     assert result == 0
     assert cli.store.list_jobs("UC123") == []
     assert cli.profile.channel_id is None
-    assert cli.profile.approved_pilot_video_id is None
     assert "ไม่ได้ลบวิดีโอ" in capsys.readouterr().out
 
 
@@ -547,7 +496,6 @@ def test_maintenance_revoked_oauth_clears_channel_data_and_profile(cli, candidat
     assert result == 1
     assert cli.store.list_jobs("UC123") == []
     assert cli.profile.channel_id is None
-    assert cli.profile.approved_pilot_video_id is None
 
 
 def test_upload_revoked_oauth_clears_channel_data_and_profile(cli, candidate, metadata):
@@ -560,7 +508,6 @@ def test_upload_revoked_oauth_clears_channel_data_and_profile(cli, candidate, me
     assert result == 1
     assert cli.store.list_jobs("UC123") == []
     assert cli.profile.channel_id is None
-    assert cli.profile.approved_pilot_video_id is None
 
 
 def test_upload_api_refresh_revocation_clears_channel_data_and_profile(cli, candidate, metadata):

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Protocol
@@ -35,6 +36,8 @@ UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 _MIN_CHUNK_BYTES = 256 * 1024
 _MAX_RETRIES = 5
 _MAX_BACKOFF_SECONDS = 8.0
+_SCHEDULE_CONFIRM_ATTEMPTS = 4
+_SCHEDULE_CONFIRM_DELAY_SECONDS = 0.25
 _QUOTA_REASONS = {
     "quotaexceeded", "dailylimitexceeded", "dailylimitexceededunreg",
     "uploadlimitexceeded", "userlimitexceeded",
@@ -498,10 +501,12 @@ class YouTubeApi(ChannelApi):
         if self.store is None:
             raise UploadError("JobStore is required for resumable uploads")
         result = ResumableUploader(self.transport, self.store).upload(job, media_path)
-        if result.actual_visibility == "unknown":
+        if job.metadata.publish_at is not None:
+            self._confirm_schedule(result.video_id, job.channel_id, job.metadata.publish_at)
+            result = replace(result, actual_visibility="private")
+        elif result.actual_visibility == "unknown":
             snapshots = self.refresh_videos([result.video_id])
             if snapshots and snapshots[0].privacy_status:
-                from dataclasses import replace
                 result = replace(result, actual_visibility=snapshots[0].privacy_status)
         return result
 
@@ -596,7 +601,54 @@ class YouTubeApi(ChannelApi):
             ) from exc
         except (requests.RequestException, TransportError, TimeoutError) as exc:
             raise VideoSchedulingError("YouTube scheduling request was interrupted") from exc
+        self._confirm_schedule(video_id, channel_id, publish_value)
         return True
+
+    def _confirm_schedule(self, video_id: str, channel_id: str, publish_at: str) -> None:
+        """Confirm the persisted schedule before callers record or report success."""
+        for attempt in range(_SCHEDULE_CONFIRM_ATTEMPTS):
+            try:
+                readback = self.refresh_videos([video_id])
+                snapshot = next(
+                    (video for video in readback if video.video_id == video_id),
+                    None,
+                )
+            except HttpError as exc:
+                if _http_error_reason(exc) in _QUOTA_REASONS:
+                    raise QuotaExceeded("YouTube schedule verification quota was reached") from exc
+                raise VideoSchedulingError(
+                    "Could not confirm the publish time with YouTube; keep the uploaded video ID and retry",
+                    "schedule_unconfirmed",
+                ) from exc
+            except (requests.RequestException, TransportError, TimeoutError) as exc:
+                raise VideoSchedulingError(
+                    "YouTube schedule verification was interrupted; keep the uploaded video ID and retry",
+                    "schedule_unconfirmed",
+                ) from exc
+            if (
+                snapshot is not None
+                and snapshot.channel_id == channel_id
+                and snapshot.privacy_status == "private"
+                and isinstance(snapshot.publish_at, str)
+                and _same_instant(snapshot.publish_at, publish_at)
+            ):
+                return
+            eventually_consistent = (
+                not readback
+                or (
+                    snapshot is not None
+                    and snapshot.channel_id == channel_id
+                    and snapshot.privacy_status == "private"
+                    and snapshot.publish_at is None
+                )
+            )
+            if eventually_consistent and attempt + 1 < _SCHEDULE_CONFIRM_ATTEMPTS:
+                time.sleep(_SCHEDULE_CONFIRM_DELAY_SECONDS)
+                continue
+            raise VideoSchedulingError(
+                "YouTube has not confirmed the requested publish time; keep the uploaded video ID and retry",
+                "schedule_unconfirmed",
+            )
 
     def refresh_videos(self, video_ids: list[str]) -> list[ApiVideoSnapshot]:
         snapshots: list[ApiVideoSnapshot] = []

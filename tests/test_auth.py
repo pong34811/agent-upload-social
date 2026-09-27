@@ -127,9 +127,9 @@ def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_
     store = CredentialStore(fake_keyring)
     original_save = store.save
 
-    def save(account_key, credentials):
+    def save(account_key, credentials, *, granted_scopes=None):
         events.append("stored")
-        original_save(account_key, credentials)
+        original_save(account_key, credentials, granted_scopes=granted_scopes)
 
     store.save = save
 

@@ -26,9 +26,7 @@ def valid_profile(tmp_path):
         made_for_kids=False,
         contains_synthetic_media=False,
         is_official_artist_channel=False,
-        asset_rights_confirmed=True,
         shorts_title_suffix=" #Shorts",
-        approved_pilot_video_id=None,
     )
 
 

@@ -1,20 +1,20 @@
 import dataclasses
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from httplib2 import HttpLib2Error
 
 from conftest import NOW
 from katy404_youtube_agent.auth import AuthorizationRevokedError, ChannelRef, ChannelResolutionError
 from katy404_youtube_agent.media import build_metadata
 from katy404_youtube_agent.models import MediaFacts, ThumbnailResult, UploadChunkResult, VideoUploadResult
 from katy404_youtube_agent.scanner import scan_folder
-from katy404_youtube_agent.runner import BatchRunner, PilotApprovalRequired
-from katy404_youtube_agent.profile import ProfileError
+from katy404_youtube_agent.runner import BatchRunner
 from katy404_youtube_agent.store import JobStateError
-from katy404_youtube_agent.youtube import QuotaExceeded, RetryableUploadError, ThumbnailError
+from katy404_youtube_agent.youtube import QuotaExceeded, RetryableUploadError, ThumbnailError, VideoSchedulingError
 
 
 class FakeApi:
@@ -112,7 +112,7 @@ def two_prepared_jobs(two_media_folder, store, valid_profile):
     ]
 
 
-def test_private_pilot_sets_private_visibility_and_matching_thumbnail(fake_api, runner, media_folder):
+def test_force_private_upload_sets_private_visibility_and_matching_thumbnail(fake_api, runner, media_folder):
     report = runner.upload(media_folder, "Katy404", limit=1, force_private=True)
 
     assert report.uploaded_count == 1
@@ -147,44 +147,13 @@ def test_requeue_failed_reuses_same_job_and_refreshes_metadata_from_current_prof
     assert retried.state == "discovered"
     assert retried.failure_code is None
     assert retried.metadata.description.startswith("Katy404: ")
-    assert retried.metadata.privacy_status == "private"
+    assert retried.metadata.privacy_status == "public"
     assert retried.sha256 == prepared_job.sha256
     assert store.get_job(prepared_job.id).state == "discovered"
 
     runner.upload_prepared([retried])
 
-    assert runner.api.video_requests[0].privacy_status == "private"
-
-
-def test_unapproved_pilot_rewrites_persisted_nonprivate_preupload_job(fake_api, runner, prepared_job, store):
-    runner.profile = dataclasses.replace(runner.profile, privacy_status="public", api_audit_passed=True)
-    store.update_preupload_metadata(
-        prepared_job.id,
-        dataclasses.replace(prepared_job.metadata, privacy_status="public"),
-    )
-
-    report = runner.upload_prepared([store.get_job(prepared_job.id)])
-
-    assert report.uploaded_count == 1
-    assert fake_api.video_requests[0].privacy_status == "private"
-    assert store.get_job(prepared_job.id).metadata.privacy_status == "private"
-
-
-def test_unapproved_pilot_blocks_existing_nonprivate_resumable_session(fake_api, runner, prepared_job, store):
-    runner.profile = dataclasses.replace(runner.profile, privacy_status="public", api_audit_passed=True)
-    store.update_preupload_metadata(
-        prepared_job.id,
-        dataclasses.replace(prepared_job.metadata, privacy_status="public"),
-    )
-    store.set_upload_session(prepared_job.id, "https://upload.example.test/session/public", 0)
-
-    report = runner.upload_prepared([store.get_job(prepared_job.id)])
-
-    assert report.failed_count == 1
-    assert report.stopped_reason == "pilot_privacy_conflict"
-    assert report.items[0].error_code == "pilot_privacy_conflict"
-    assert fake_api.begin_upload.call_count == 0
-    assert store.get_job(prepared_job.id).session_uri == "https://upload.example.test/session/public"
+    assert runner.api.video_requests[0].privacy_status == "public"
 
 
 def test_requeue_failed_rejects_changed_media_without_changing_failed_state(runner, prepared_job, store):
@@ -279,14 +248,21 @@ def test_unknown_requested_channel_stops_before_video_upload(runner, fake_api, m
     assert fake_api.upload_chunk.call_count == 0
 
 
+def test_saved_channel_alias_resolves_to_verified_channel_id(runner, fake_api, media_folder):
+    report = runner.upload(media_folder, runner.profile.channel_alias, limit=1, force_private=True)
+
+    assert report.failed_count == 0
+    fake_api.list_owned_channels.assert_called_once_with()
+    assert fake_api.begin_upload.call_count == 1
 
 
-def test_full_batch_waits_for_private_pilot_review(runner, fake_api, media_folder):
-    with pytest.raises(PilotApprovalRequired, match="Private pilot"):
-        runner.upload(media_folder, "Katy404")
 
-    assert fake_api.list_owned_channels.call_count == 0
-    assert fake_api.begin_upload.call_count == 0
+
+def test_full_batch_uploads_without_an_extra_approval_step(runner, fake_api, media_folder):
+    report = runner.upload(media_folder, "Katy404")
+
+    assert report.failed_count == 0
+    assert fake_api.begin_upload.call_count > 0
 
 
 def test_upload_preflight_callback_runs_before_video_transport(runner, fake_api, media_folder):
@@ -310,14 +286,13 @@ def test_upload_preflight_callback_runs_before_video_transport(runner, fake_api,
     assert report.uploaded_count == 1
 
 
-def test_public_visibility_is_blocked_until_api_audit(valid_profile, store, fake_api, media_folder):
+def test_public_visibility_uses_api_result_without_local_audit_gate(valid_profile, store, fake_api, media_folder):
     from dataclasses import replace
 
     profile = replace(
         valid_profile,
         privacy_status="public",
         api_audit_passed=False,
-        approved_pilot_video_id="reviewed-pilot-id",
     )
     public_runner = BatchRunner(
         profile,
@@ -327,11 +302,12 @@ def test_public_visibility_is_blocked_until_api_audit(valid_profile, store, fake
         sleep=lambda _: None,
     )
 
-    with pytest.raises(ProfileError, match="API compliance audit"):
-        public_runner.upload(media_folder, "Katy404")
+    report = public_runner.upload(media_folder, "Katy404")
 
-    assert fake_api.list_owned_channels.call_count == 0
-    assert fake_api.begin_upload.call_count == 0
+    assert report.failed_count == 0
+    assert report.uploaded_count == 1
+    assert fake_api.list_owned_channels.call_count == 1
+    assert fake_api.begin_upload.call_count == 1
 
 
 def test_quota_after_video_confirmation_preserves_success_and_stops_remaining(
@@ -351,3 +327,57 @@ def test_quota_after_video_confirmation_preserves_success_and_stops_remaining(
     assert report.pending_count == 1
     assert report.stopped_reason == "quota"
     assert fake_api.set_thumbnail.call_count == 0
+
+
+@pytest.mark.parametrize(
+    ("error", "error_code", "pending_status"),
+    [
+        (
+            VideoSchedulingError("YouTube did not confirm the schedule", "schedule_unconfirmed"),
+            "schedule_unconfirmed",
+            "pending_batch",
+        ),
+        (QuotaExceeded("Quota reached during schedule confirmation"), "quota", "pending_quota"),
+        (OSError("Connection interrupted during schedule confirmation"), "schedule_unconfirmed", "pending_batch"),
+        (HttpLib2Error("Transport interrupted during schedule confirmation"), "schedule_unconfirmed", "pending_batch"),
+    ],
+)
+def test_schedule_confirmation_failure_preserves_remote_id_and_stops_batch(
+    fake_api, runner, two_prepared_jobs, error, error_code, pending_status
+):
+    publish_at = datetime.now(timezone.utc) + timedelta(days=2)
+
+    def uploaded_without_confirmed_schedule(job, _media_path):
+        runner.store.mark_video_uploaded(job.id, "video-confirmed", confirmed_at=NOW)
+        raise error
+
+    fake_api.upload_video = Mock(side_effect=uploaded_without_confirmed_schedule)
+    scheduled_times = {job.id: publish_at for job in two_prepared_jobs}
+
+    report = runner.upload_prepared(two_prepared_jobs, scheduled_times=scheduled_times)
+
+    assert report.items[0].status == "failed"
+    assert report.items[0].error_code == error_code
+    assert report.items[0].video_id == "video-confirmed"
+    assert report.items[0].video_url == "https://www.youtube.com/watch?v=video-confirmed"
+    assert report.items[0].scheduled_publish_at is None
+    assert report.items[1].status == pending_status
+    assert report.uploaded_count == report.scheduled_count == 0
+    assert report.failed_count == report.pending_count == 1
+    assert report.stopped_reason == error_code
+    saved = runner.store.get_job(two_prepared_jobs[0].id)
+    assert saved.state == "uploaded"
+    assert saved.video_id == "video-confirmed"
+    assert saved.failure_code is None
+    assert "publish_at" not in saved.api_fields
+    assert fake_api.upload_video.call_count == 1
+    assert fake_api.set_thumbnail.call_count == 0
+
+    fake_api.schedule_video = Mock(return_value=True)
+    resumed = runner.upload_prepared([saved], scheduled_times=scheduled_times)
+
+    fake_api.schedule_video.assert_called_once_with("video-confirmed", "UC123", publish_at)
+    assert fake_api.upload_video.call_count == 1
+    assert resumed.failed_count == 0
+    assert resumed.scheduled_count == 1
+    assert runner.store.get_job(saved.id).state == "complete"

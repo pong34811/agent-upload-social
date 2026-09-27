@@ -11,7 +11,6 @@ from katy404_youtube_agent.profile import (
     save_profile,
     validate_upload_profile,
 )
-from katy404_youtube_agent.models import UploadProfile
 
 
 def test_load_profile_requires_channel_alias(tmp_path):
@@ -23,13 +22,13 @@ def test_load_profile_requires_channel_alias(tmp_path):
 
 
 @pytest.mark.parametrize("requested_privacy", ["unlisted", "public"])
-def test_nonprivate_upload_requires_recorded_youtube_api_audit(
+def test_nonprivate_upload_does_not_require_a_local_audit_declaration(
     valid_profile, requested_privacy
 ):
     profile = dataclasses.replace(valid_profile, api_audit_passed=False)
 
-    with pytest.raises(ProfileError, match="API compliance audit"):
-        validate_upload_profile(profile, requested_privacy=requested_privacy)
+    validate_upload_profile(profile, requested_privacy=requested_privacy)
+    assert profile.api_audit_passed is False
 
 
 def test_profile_accepts_desktop_oauth_without_project_metadata(tmp_path, valid_profile):
@@ -48,14 +47,6 @@ def test_profile_accepts_desktop_oauth_without_project_metadata(tmp_path, valid_
 def test_unknown_privacy_is_rejected(valid_profile):
     with pytest.raises(ProfileError, match="privacy_status"):
         validate_upload_profile(valid_profile, requested_privacy="friends")
-
-
-def test_asset_rights_must_be_explicitly_confirmed(valid_profile):
-    assert "asset_rights_confirmed" in UploadProfile.__dataclass_fields__
-    profile = dataclasses.replace(valid_profile, asset_rights_confirmed=False)
-
-    with pytest.raises(ProfileError, match="rights"):
-        validate_upload_profile(profile, requested_privacy="private")
 
 
 def test_profile_store_round_trips_path_fields(tmp_path, valid_profile):

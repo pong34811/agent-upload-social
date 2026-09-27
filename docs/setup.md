@@ -75,31 +75,13 @@ C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 
 ตรวจว่าไฟล์เป็น JSON แบบ Desktop/Installed (`installed` object มี `client_id` และ `client_secret`) อย่าแก้ค่าภายในไฟล์เอง ไฟล์นี้ถูก `.gitignore` กันไว้อยู่แล้ว
 
-## 4. สร้าง OAuth credential
+## 4. OAuth
 
-ใน preset ปัจจุบัน `profile.json` ระบุ OAuth account label เป็น `waritnan34811` จึงต้องใช้ label เดียวกันเพื่อให้ uploader เจอ credential นั้น:
+ไม่ต้องสร้าง token แยกก่อนอัปโหลด. เมื่อรัน `upload` ครั้งแรก โปรแกรมจะเปิด Google OAuth เองและบันทึก credential ใน account `waritnan34811` ตามโปรไฟล์. OAuth JSON และ token เป็นข้อมูลเฉพาะเครื่องและไม่ถูก clone จาก Git
 
-```powershell
-.\.venv\Scripts\kt404-youtube.exe auth token --client-secrets ".\client_secrets.json" --account waritnan34811
-```
+คำสั่ง `auth token` ใช้เฉพาะเมื่อต้องการเชื่อมบัญชีก่อนเริ่มอัปโหลด
 
-ครั้งแรกโปรแกรมจะเปิด Google OAuth ใน browser ให้เจ้าของเลือกบัญชีและยินยอม scope ที่แสดง หลังสำเร็จจะสร้าง `token_waritnan34811.json` ใน root ของโปรเจกต์ คำสั่งนี้ไม่เรียก YouTube API และไม่อัปโหลดวิดีโอ ถ้าบัญชีนี้มี credential ที่ยังใช้ได้ โปรแกรมจะนำกลับมาใช้โดยไม่เปิด browser ซ้ำ
-
-ดูเฉพาะชื่อบัญชีที่มี credential โดยไม่แสดง token ได้ด้วย:
-
-```powershell
-.\.venv\Scripts\kt404-youtube.exe auth accounts
-```
-
-หากเชื่อมบัญชี Google อื่น ให้ตั้ง account label ใหม่และเลือก label เดียวกันตอนตั้งโปรไฟล์ เช่น:
-
-```powershell
-.\.venv\Scripts\kt404-youtube.exe auth token --client-secrets ".\client_secrets.json" --account channel2
-```
-
-OAuth JSON และ token เป็นข้อมูลเฉพาะเครื่องและไม่ถูก clone จาก Git
-
-## 5. ตรวจ preset และกรอกค่าที่ยังขาด
+## 5. ใช้ preset ช่อง
 
 แสดง preset ปัจจุบันโดยไม่แสดง OAuth token:
 
@@ -107,33 +89,33 @@ OAuth JSON และ token เป็นข้อมูลเฉพาะเค�
 .\.venv\Scripts\kt404-youtube.exe profile show
 ```
 
-โปรไฟล์ที่อยู่ใน repo มี preset ของช่อง `waritnan34811` พร้อม description, tags, category `22` และ Made for Kids = `no` ตามที่เจ้าของระบุ ค่า privacy, synthetic media และ Official Artist Channel ต้องยืนยันตามข้อเท็จจริงก่อนใช้อัปโหลด; ห้ามเดาหรือรับรองแทนเจ้าของ
+โปรเจกต์มี preset ของช่อง `waritnan34811` อยู่แล้ว จึงไม่ต้องรัน `profile setup` ซ้ำเพื่ออัปโหลดช่องนี้. หากตั้งค่าให้ช่องอื่น ให้ใช้ `profile setup` เฉพาะครั้งนั้นและกรอก metadata ตามข้อเท็จจริง
 
-ถ้าต้องกรอก/ยืนยันข้อมูลเหล่านี้ผ่าน CLI ให้รันคำสั่งตั้งค่าใหม่ คำสั่งนี้เรียก YouTube API เพื่อแสดงช่องที่บัญชี OAuth จัดการได้ แต่ไม่อัปโหลดคลิป และจะสำรอง `profile.json` เดิมก่อนแทนที่:
+หากต้องตั้งโปรไฟล์สำหรับช่องอื่น คำสั่งนี้จะแสดงช่องที่บัญชี OAuth จัดการได้และบันทึกค่าประจำช่อง:
 
 ```powershell
 .\.venv\Scripts\kt404-youtube.exe profile setup --client-secrets ".\client_secrets.json" --oauth-account waritnan34811 --replace-existing
 ```
 
-เลือกช่องที่ถูกต้อง แล้วกรอก metadata และ declarations ตามความจริง รวมถึงยืนยันสิทธิ์ใช้ audio/visual/game footage/overlay สำหรับ batch ที่จะส่ง ค่า Unlisted/Public ต้องอาศัยสถานะ YouTube API audit ที่ผ่านจริง; อย่าตั้งสถานะ audit จากการผ่าน OAuth เพียงอย่างเดียว
+เลือกช่องที่ถูกต้อง แล้วกรอก metadata และค่าที่ YouTube ต้องใช้ตามข้อเท็จจริง. ไม่ต้องกรอกสถานะ audit ก่อนอัปโหลด; ค่า `api_audit_passed` เดิมไม่มีผลต่อการส่งคำขอ. Google อาจจำกัด project ที่ยังไม่ผ่านการตรวจสอบให้วิดีโอเป็น Private; โปรแกรมใช้ผลจริงจาก API และอ่านตาราง `private` + `publishAt` กลับก่อนรายงานสำเร็จ
 
-ตรวจค่าที่บันทึกไว้อีกครั้งด้วย `profile show`. สำหรับการแก้เฉพาะค่า privacy มีคำสั่ง:
+## 6. อัปโหลด
+
+ระบุโฟลเดอร์และช่องในคำสั่งเดียว; uploader ตรวจไฟล์ก่อนส่งให้อยู่แล้ว:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe profile set-privacy private
+.\.venv\Scripts\kt404-youtube.exe upload --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
 ```
 
-## 6. ตรวจคลิปก่อนสั่งอัปโหลด
-
-ติดตั้ง/เชื่อม Google Drive หรือคัดลอกคลิปกับ JPG ไว้ในโฟลเดอร์ที่ต้องการ ตรวจชื่อและไฟล์คู่ตามรูปแบบที่โปรแกรมรองรับ ดูรายละเอียดใน [คู่มือปฏิบัติงาน](operations.md). จากนั้นแทน `<โฟลเดอร์คลิป>` ด้วย path จริง:
+ถ้าต้องการดูผลก่อนส่ง ใช้ `dry-run` เพิ่มเติมได้ แต่ไม่จำเป็น:
 
 ```powershell
 .\.venv\Scripts\kt404-youtube.exe dry-run --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
 ```
 
-`dry-run` เป็นการตรวจไฟล์แบบ offline และอ่านเฉพาะไฟล์ระดับบนสุดของโฟลเดอร์ที่ระบุ ตรวจจำนวนคลิป ชื่อไฟล์ วิดีโอ/ภาพปกคู่กัน และรายการที่ต้องแก้ให้เรียบร้อยก่อนส่งคำสั่ง `upload`
+ทั้ง `upload` และ `dry-run` อ่านเฉพาะไฟล์ระดับบนสุดของโฟลเดอร์ที่ระบุ
 
-การติดตั้ง, clone, สร้าง OAuth หรือ dry-run ไม่ได้อัปโหลดคลิป การอัปโหลดต้องเป็นคำสั่งแยกที่เจ้าของสั่งอย่างชัดเจน หากยังไม่มี pilot ที่เจ้าของอนุมัติ โปรแกรมเริ่มด้วย Private pilot หนึ่งคลิป หลังเจ้าของตรวจใน YouTube Studio และอนุมัติ video ID แล้ว จึงสั่ง batch เต็มแยกอีกครั้ง ดูลำดับเต็มใน [คู่มือปฏิบัติงาน](operations.md)
+ถ้าไม่มี OAuth credential โปรแกรมจะเปิด Google OAuth ระหว่างคำสั่ง upload แล้วทำงานต่อหลังยืนยันสำเร็จ ดูตารางการเผยแพร่ได้ใน [คู่มือปฏิบัติงาน](operations.md)
 
 ## ที่เก็บข้อมูลในเครื่อง
 

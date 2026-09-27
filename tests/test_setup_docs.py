@@ -1,20 +1,21 @@
 from pathlib import Path
 
 
-def test_readme_contains_katy404_paths_and_pilot_sequence():
+def test_readme_documents_agent_skill_and_direct_upload_command():
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert r"G:\My Drive\Projects\Katy404\2026-09\vdo" in readme
-    assert "--limit 1 --force-private" in readme
-    assert "profile approve-pilot" in readme
+    assert ".agents/skills/kt404-youtube-upload/SKILL.md" in readme
+    assert 'upload --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"' in readme
 
 
-def test_setup_docs_describe_local_status_page_for_missing_token():
+def test_setup_docs_describe_automatic_oauth_and_account_token_storage():
     readme = Path("README.md").read_text(encoding="utf-8")
     setup = Path("docs/setup.md").read_text(encoding="utf-8")
-    section = setup.split("### หน้าเข้าสู่ระบบในเครื่อง", 1)[1].split("## ", 1)[0]
+    oauth_section = setup.split("## 4. OAuth", 1)[1].split("## ", 1)[0]
 
-    assert "Credential Manager" in setup
-    assert "Google OAuth" in setup
+    assert "เมื่อรัน `upload` ครั้งแรก โปรแกรมจะเปิด Google OAuth เอง" in oauth_section
+    assert "ไม่ต้องสร้าง token แยกก่อนอัปโหลด" in oauth_section
+    assert "`token_<account>.json`: OAuth credential เฉพาะเครื่อง; ถูก ignore" in setup
     assert "status page" in readme.casefold()
-    assert "ไม่แสดง access/refresh token" in section
+    assert "ไม่แสดง token" in readme
+    assert "โดยไม่แสดง OAuth token" in setup
