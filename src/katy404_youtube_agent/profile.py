@@ -46,6 +46,11 @@ def load_profile(path: Path) -> UploadProfile:
         raise ProfileError("client_secrets_path must be a path string")
     if secrets_path:
         data["client_secrets_path"] = Path(secrets_path)
+    pilot_rights_video_id = data.get("pilot_asset_rights_confirmed_video_id")
+    if pilot_rights_video_id is not None and (
+        not isinstance(pilot_rights_video_id, str) or not pilot_rights_video_id.strip()
+    ):
+        raise ProfileError("pilot_asset_rights_confirmed_video_id must be a non-empty string")
     tags = data.get("tags", ())
     if not isinstance(tags, (list, tuple)) or not all(isinstance(tag, str) for tag in tags):
         raise ProfileError("tags must be a list of strings")
@@ -103,7 +108,12 @@ def _require_text(value: Any, field_name: str) -> str:
     return value.strip()
 
 
-def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -> None:
+def validate_upload_profile(
+    profile: UploadProfile,
+    *,
+    requested_privacy: str,
+    asset_rights_confirmed: bool | None = None,
+) -> None:
     """Fail closed unless required owner settings and visibility gates are met."""
     if not isinstance(profile, UploadProfile):
         raise ProfileError("A valid upload profile is required")
@@ -115,7 +125,7 @@ def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -
         raise ProfileError("privacy_status must be private, unlisted, or public")
 
     if privacy_status != "private" and not profile.api_audit_passed:
-        raise ProfileError("Unlisted/Public upload requires a completed YouTube API compliance audit")
+        raise ProfileError("Unlisted/Public publishing requires a completed YouTube API compliance audit")
     if not isinstance(profile.api_audit_passed, bool):
         raise ProfileError("api_audit_passed must be a boolean")
 
@@ -125,7 +135,8 @@ def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -
         raise ProfileError("contains_synthetic_media must be declared true or false")
     if not isinstance(profile.is_official_artist_channel, bool):
         raise ProfileError("is_official_artist_channel must be declared true or false")
-    if profile.asset_rights_confirmed is not True:
+    rights_confirmed = profile.asset_rights_confirmed if asset_rights_confirmed is None else asset_rights_confirmed
+    if rights_confirmed is not True:
         raise ProfileError(
             "Confirm rights to the video's audio, visuals, game footage, and overlays"
         )

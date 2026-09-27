@@ -5,6 +5,7 @@
 ## สถานะ
 
 - มีเส้นทางตรวจไฟล์แบบ offline, hash กันส่งซ้ำ, OAuth Desktop, resumable upload, thumbnail retry, Private pilot และคำสั่งลบ/ตรวจอายุข้อมูล
+- ตั้งเวลาเผยแพร่บน YouTube ได้จากคำสั่งที่เจ้าของเรียก โดยวิดีโอจะเป็น Private จนถึงเวลาที่กำหนด
 - ต้องมี Desktop OAuth JSON ที่เจ้าของเลือกใช้ และการยืนยันค่าประจำช่องก่อนเริ่มอัปโหลด
 - หลัง clone ให้วาง OAuth Desktop JSON เป็น `client_secrets.json` ใน root ของ repo; credentials และ token ไม่ถูกส่งขึ้น Git. ขั้นตอนสำหรับเครื่องใหม่อยู่ใน [คู่มือติดตั้ง](docs/setup.md)
 
@@ -57,6 +58,32 @@ ffprobe -version
 ```
 
 ดูคำสั่งลบข้อมูล, revoke OAuth และตั้ง maintenance รายสัปดาห์ใน [คู่มือปฏิบัติงาน](docs/operations.md)
+
+### ตั้งเวลาเผยแพร่
+
+การตั้งเวลาเป็น metadata บน YouTube โดยตรง วิดีโอจะอยู่สถานะ Private จนถึง `publishAt`; คำสั่งต้องใช้เวลาที่มี UTC offset และอยู่ในอนาคต ก่อนทำงานต้องผ่าน API audit, ยืนยันสิทธิ์ assets ของ batch และอนุมัติ pilot แล้ว ตามข้อกำหนดของ [YouTube videos.update](https://developers.google.com/youtube/v3/docs/videos/update)
+
+หากยืนยันสิทธิ์เฉพาะ pilot การยืนยันนั้นผูกกับ video ID ของ pilot และไม่ครอบคลุม batch; full batch ต้องยืนยัน assets ทั้งชุดแยกต่างหาก
+
+OAuth credential เดิมต้องยินยอม scope แก้ metadata ใหม่ก่อน:
+
+```powershell
+.\.venv\Scripts\kt404-youtube.exe auth reauthorize
+```
+
+ตั้งเวลาให้วิดีโอ Private ที่โปรแกรมจัดการไว้แล้ว:
+
+```powershell
+.\.venv\Scripts\kt404-youtube.exe schedule --video-id VIDEO_ID --publish-at "2026-10-01T07:30:00+07:00"
+```
+
+ตั้งเวลา batch โดยจับคู่ไฟล์แนวนอนและแนวตั้งที่เรียงตามชื่อไฟล์ วันละหนึ่งคู่ เวลาเดียวกัน:
+
+```powershell
+.\.venv\Scripts\kt404-youtube.exe upload --folder "<โฟลเดอร์คลิป>" --channel "UCckWRGExmxGqjWjGZgmZypg" --schedule-from "2026-10-01T07:30:00+07:00"
+```
+
+โหมดนี้ตรวจไฟล์ทั้งหมดก่อนเริ่ม, ปฏิเสธวิดีโอจัตุรัสหรือจำนวนแนวนอน/แนวตั้งไม่เท่ากัน, และไม่ใช้ `--limit`/`--force-private`; คลิปที่อัปโหลดครบอยู่แล้วจะถูกตั้งเวลาผ่าน API โดยไม่อัปโหลดซ้ำ การสั่ง batch ยังเป็นคำสั่งแยกจากการตรวจและอนุมัติ pilot
 
 ## พื้นที่เก็บข้อมูล
 

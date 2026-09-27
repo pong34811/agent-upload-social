@@ -22,6 +22,7 @@ class UploadProfile:
     contains_synthetic_media: bool | None = None
     is_official_artist_channel: bool = False
     asset_rights_confirmed: bool = False
+    pilot_asset_rights_confirmed_video_id: str | None = None
     shorts_title_suffix: str = " #Shorts"
     approved_pilot_video_id: str | None = None
 
@@ -62,6 +63,7 @@ class VideoMetadata:
     made_for_kids: bool
     contains_synthetic_media: bool
     short_candidate: bool
+    publish_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +115,13 @@ class ApiVideoSnapshot:
     privacy_status: str | None
     thumbnail_url: str | None
     published_at: str | None
+    channel_id: str | None = None
+    publish_at: str | None = None
+    embeddable: bool | None = None
+    license: str | None = None
+    public_stats_viewable: bool | None = None
+    self_declared_made_for_kids: bool | None = None
+    contains_synthetic_media: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,6 +133,7 @@ class UploadItemResult:
     actual_visibility: str | None = None
     thumbnail_status: str | None = None
     error_code: str | None = None
+    scheduled_publish_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,3 +144,4 @@ class BatchReport:
     failed_count: int
     pending_count: int
     stopped_reason: str | None = None
+    scheduled_count: int = 0

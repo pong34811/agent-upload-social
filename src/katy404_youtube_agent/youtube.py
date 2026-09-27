@@ -28,6 +28,7 @@ from .models import (
     VideoUploadResult,
     ThumbnailResult,
 )
+from .scheduling import format_publish_at, parse_publish_at
 from .store import JobStateError, JobStore
 
 UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024
@@ -56,6 +57,14 @@ class UploadSessionExpired(UploadError):
     """Raised when Google has expired a resumable upload session."""
 
 
+class ScheduledPublishTimeExpired(UploadError):
+    """Raised before another request when a scheduled upload's time has passed."""
+
+
+class UploadCompletionPending(UploadError):
+    """Raised when all bytes arrived but YouTube has not returned the video ID yet."""
+
+
 class QuotaExceeded(RuntimeError):
     """Raised for a daily or upload quota limit; the rest of the queue must stop."""
 
@@ -66,6 +75,14 @@ class ThumbnailError(RuntimeError):
     def __init__(self, message: str, *, retryable: bool = True, error_code: str | None = None) -> None:
         super().__init__(message)
         self.retryable = retryable
+        self.error_code = error_code
+
+
+class VideoSchedulingError(RuntimeError):
+    """A video could not be safely scheduled for future publication."""
+
+    def __init__(self, message: str, error_code: str = "video_scheduling_error") -> None:
+        super().__init__(message)
         self.error_code = error_code
 
 
@@ -98,6 +115,19 @@ class ResumableTransport:
         if total_bytes <= 0:
             raise UploadError("Video file is empty")
         metadata = job.metadata
+        status = {
+            "privacyStatus": metadata.privacy_status,
+            "selfDeclaredMadeForKids": metadata.made_for_kids,
+            "containsSyntheticMedia": metadata.contains_synthetic_media,
+        }
+        if metadata.publish_at is not None:
+            if metadata.privacy_status != "private":
+                raise UploadError("A scheduled upload must remain private until its publish time")
+            try:
+                parse_publish_at(metadata.publish_at)
+            except ValueError as exc:
+                raise ScheduledPublishTimeExpired("Scheduled publish time expired before upload could start") from exc
+            status["publishAt"] = metadata.publish_at
         body = {
             "snippet": {
                 "title": metadata.title,
@@ -105,11 +135,7 @@ class ResumableTransport:
                 "tags": list(metadata.tags),
                 "categoryId": metadata.category_id,
             },
-            "status": {
-                "privacyStatus": metadata.privacy_status,
-                "selfDeclaredMadeForKids": metadata.made_for_kids,
-                "containsSyntheticMedia": metadata.contains_synthetic_media,
-            },
+            "status": status,
         }
         query = urlencode({"uploadType": "resumable", "part": "snippet,status"})
         url = f"https://www.googleapis.com/upload/youtube/v3/videos?{query}"
@@ -277,11 +303,15 @@ class ResumableUploader:
         raise AssertionError("unreachable")
 
     def _start_session(self, job: UploadJob, media_path: Path) -> str:
-        session_uri = self._retry_call(lambda: self.transport.begin_upload(job, media_path))
+        session_uri = self._retry_call(
+            lambda: (self._ensure_future_publish_time(job), self.transport.begin_upload(job, media_path))[1]
+        )
         self.store.set_upload_session(job.id, session_uri, 0)
         return session_uri
 
     def _query(self, session_uri: str, total_bytes: int) -> int | VideoUploadResult:
+        # A status query is safe after the deadline and may recover a video ID
+        # whose final upload response was lost. The byte-send path checks time.
         result = self._retry_call(lambda: self.transport.query_session(session_uri, total_bytes))
         if isinstance(result, VideoUploadResult):
             return result
@@ -292,6 +322,47 @@ class ResumableUploader:
     def _finish(self, job_id: str, result: VideoUploadResult) -> VideoUploadResult:
         self.store.mark_video_uploaded(job_id, result.video_id, result.confirmed_at)
         return result
+
+    def reconcile_scheduled_session(self, job: UploadJob) -> UploadJob:
+        """Check an old schedule session before replacing its publish time.
+
+        A completed remote session is recorded locally. An incomplete or expired
+        session is retired so a new explicit schedule can start from byte zero.
+        The opaque session URI is never returned or logged.
+        """
+        current = self.store.get_job(job.id)
+        if current.state != "uploading" or not current.session_uri or current.metadata.publish_at is None:
+            raise UploadError("Scheduled upload has no resumable session to reconcile")
+        try:
+            outcome = self._retry_call(
+                lambda: self.transport.query_session(current.session_uri, current.size_bytes)
+            )
+        except UploadSessionExpired:
+            self.store.retire_upload_session(current.id)
+            return self.store.get_job(current.id)
+        if isinstance(outcome, VideoUploadResult):
+            self.store.mark_video_uploaded(current.id, outcome.video_id, outcome.confirmed_at)
+            return self.store.get_job(current.id)
+        if not isinstance(outcome, int) or outcome < 0 or outcome > current.size_bytes:
+            raise UploadError("YouTube returned an invalid resumable upload offset")
+        if outcome == current.size_bytes:
+            # Every byte may have arrived while YouTube is still finalizing the
+            # video. Keep this session so a later status query can recover its ID.
+            self.store.set_upload_session(current.id, current.session_uri, outcome)
+            return self.store.get_job(current.id)
+        self.store.retire_upload_session(current.id)
+        return self.store.get_job(current.id)
+
+    @staticmethod
+    def _ensure_future_publish_time(job: UploadJob) -> None:
+        if job.metadata.publish_at is None:
+            return
+        try:
+            parse_publish_at(job.metadata.publish_at)
+        except ValueError as exc:
+            raise ScheduledPublishTimeExpired(
+                "Scheduled publish time expired; upload was stopped before sending more data"
+            ) from exc
 
     def upload(self, job: UploadJob, media_path: Path) -> VideoUploadResult:
         media_path = Path(media_path)
@@ -339,6 +410,7 @@ class ResumableUploader:
         no_progress = 0
         retries_at_offset = 0
         while offset < total_bytes:
+            self._ensure_future_publish_time(job)
             with media_path.open("rb") as stream:
                 stream.seek(offset)
                 chunk = stream.read(min(self.chunk_size, total_bytes - offset))
@@ -383,6 +455,7 @@ class ResumableUploader:
                 continue
             if outcome.result is not None:
                 return self._finish(job.id, outcome.result)
+            self._ensure_future_publish_time(job)
             if outcome.next_offset is None or outcome.next_offset < offset or outcome.next_offset > total_bytes:
                 raise UploadError("YouTube returned an invalid next upload offset")
             if outcome.next_offset == offset:
@@ -404,7 +477,7 @@ class ResumableUploader:
         completed = self._query(session_uri, total_bytes)
         if isinstance(completed, VideoUploadResult):
             return self._finish(job.id, completed)
-        raise UploadError("YouTube confirmed all bytes but did not return a completed video")
+        raise UploadCompletionPending("YouTube received all bytes but has not confirmed video completion yet")
 
 
 class YouTubeApi(ChannelApi):
@@ -432,6 +505,12 @@ class YouTubeApi(ChannelApi):
                 result = replace(result, actual_visibility=snapshots[0].privacy_status)
         return result
 
+    def reconcile_scheduled_upload(self, job: UploadJob) -> UploadJob:
+        """Reconcile an unfinished prior schedule before a new schedule replaces it."""
+        if self.store is None:
+            raise UploadError("JobStore is required to reconcile scheduled uploads")
+        return ResumableUploader(self.transport, self.store).reconcile_scheduled_session(job)
+
     def set_thumbnail(self, video_id: str, thumbnail_path: Path) -> ThumbnailResult:
         thumbnail_path = Path(thumbnail_path)
         suffix = thumbnail_path.suffix.casefold()
@@ -452,6 +531,72 @@ class YouTubeApi(ChannelApi):
         except (requests.RequestException, TransportError, TimeoutError) as exc:
             raise ThumbnailError("Custom thumbnail request was interrupted", retryable=True) from exc
         return ThumbnailResult(success=True)
+
+    def schedule_video(self, video_id: str, channel_id: str, publish_at: datetime) -> bool:
+        """Schedule a locally managed private video, preserving mutable status values."""
+        if not video_id or not channel_id:
+            raise ValueError("video_id and channel_id are required")
+        if publish_at.tzinfo is None or publish_at.utcoffset() is None:
+            raise ValueError("publish_at must include a UTC offset")
+        if publish_at <= datetime.now(publish_at.tzinfo):
+            raise ValueError("publish_at must be in the future")
+        publish_value = format_publish_at(publish_at)
+        snapshot = next(iter(self.refresh_videos([video_id])), None)
+        if snapshot is None:
+            raise VideoSchedulingError(
+                "YouTube video is missing or not accessible to this account", "video_not_found"
+            )
+        if snapshot.channel_id != channel_id:
+            raise VideoSchedulingError("YouTube video does not belong to the configured channel", "channel_mismatch")
+        if snapshot.privacy_status != "private":
+            raise VideoSchedulingError("Only a currently Private video can be scheduled", "not_private")
+        if snapshot.publish_at and _same_instant(snapshot.publish_at, publish_value):
+            return False
+
+        if publish_at <= datetime.now(publish_at.tzinfo):
+            raise VideoSchedulingError(
+                "Publish time expired while checking the current video status", "invalid_publish_at"
+            )
+
+        status: dict[str, Any] = {
+            "privacyStatus": "private",
+            "publishAt": publish_value,
+        }
+        mutable_status = {
+            "embeddable": snapshot.embeddable,
+            "license": snapshot.license,
+            "publicStatsViewable": snapshot.public_stats_viewable,
+            "selfDeclaredMadeForKids": snapshot.self_declared_made_for_kids,
+            "containsSyntheticMedia": snapshot.contains_synthetic_media,
+        }
+        status.update({key: value for key, value in mutable_status.items() if value is not None})
+        try:
+            execute_api_request(
+                self.client.videos().update(
+                    part="status",
+                    body={"id": video_id, "status": status},
+                )
+            )
+        except HttpError as exc:
+            reason = _http_error_reason(exc)
+            if reason in _QUOTA_REASONS:
+                raise QuotaExceeded("YouTube scheduling quota was reached; remaining files were left pending") from exc
+            if reason in {"insufficientpermissions", "forbidden", "forbiddenprivacysetting"}:
+                raise VideoSchedulingError(
+                    "YouTube rejected scheduling; reauthorize with the metadata-edit permission and check channel access",
+                    "insufficient_permissions",
+                ) from exc
+            if reason == "invalidpublishat":
+                raise VideoSchedulingError(
+                    "YouTube rejected the time; it must be future and the video must be Private and never previously published",
+                    "invalid_publish_at",
+                ) from exc
+            raise VideoSchedulingError(
+                f"YouTube rejected scheduling ({reason or 'API error'})", reason or "youtube_api_error"
+            ) from exc
+        except (requests.RequestException, TransportError, TimeoutError) as exc:
+            raise VideoSchedulingError("YouTube scheduling request was interrupted") from exc
+        return True
 
     def refresh_videos(self, video_ids: list[str]) -> list[ApiVideoSnapshot]:
         snapshots: list[ApiVideoSnapshot] = []
@@ -479,6 +624,13 @@ class YouTubeApi(ChannelApi):
                         privacy_status=status.get("privacyStatus"),
                         thumbnail_url=thumb,
                         published_at=snippet.get("publishedAt"),
+                        channel_id=snippet.get("channelId"),
+                        publish_at=status.get("publishAt"),
+                        embeddable=status.get("embeddable"),
+                        license=status.get("license"),
+                        public_stats_viewable=status.get("publicStatsViewable"),
+                        self_declared_made_for_kids=status.get("selfDeclaredMadeForKids"),
+                        contains_synthetic_media=status.get("containsSyntheticMedia"),
                     )
                 )
         return snapshots
@@ -494,3 +646,14 @@ def _http_error_reason(exc: HttpError) -> str | None:
     except (AttributeError, ValueError, TypeError):
         return None
     return None
+
+
+def _same_instant(left: str, right: str) -> bool:
+    try:
+        left_value = datetime.fromisoformat(left.replace("Z", "+00:00"))
+        right_value = datetime.fromisoformat(right.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if left_value.tzinfo is None or right_value.tzinfo is None:
+        return False
+    return left_value.astimezone(timezone.utc) == right_value.astimezone(timezone.utc)

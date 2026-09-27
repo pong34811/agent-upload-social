@@ -8,7 +8,7 @@ import time
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Mapping, Sequence
 
 from .auth import AuthorizationRevokedError, ChannelResolutionError, resolve_channel
 from .media import MediaProbeError, MetadataError, build_metadata, probe_media
@@ -25,13 +25,17 @@ from .models import (
 )
 from .profile import ProfileError, ProfileStore, validate_upload_profile
 from .scanner import scan_folder
+from .scheduling import format_publish_at, parse_publish_at, plan_daily_pairs
 from .store import JobStateError, JobStore
 from .youtube import (
     QuotaExceeded,
     ResumableUploader,
     RetryableUploadError,
+    ScheduledPublishTimeExpired,
     ThumbnailError,
+    UploadCompletionPending,
     UploadError,
+    VideoSchedulingError,
 )
 
 
@@ -129,17 +133,29 @@ class BatchRunner:
         limit: int | None = None,
         force_private: bool = False,
         on_preflight: Callable[[Any, int, int, str, UploadProfile], None] | None = None,
+        schedule_from: datetime | None = None,
+        on_schedule_plan: Callable[[dict[Path, datetime]], None] | None = None,
     ) -> BatchReport:
-        """Upload a specified folder; the initial upload can only be one Private pilot."""
+        """Upload a specified folder, optionally as an orientation-paired schedule."""
         if limit is not None and limit < 1:
             raise ValueError("limit must be a positive integer")
         if force_private and limit != 1:
             raise ValueError("force_private is reserved for one-video uploads")
+        scheduled_mode = schedule_from is not None
+        if scheduled_mode and (limit is not None or force_private):
+            raise ValueError("scheduled publishing requires a full batch without --limit or --force-private")
         if not requested_channel or not requested_channel.strip():
             raise ChannelResolutionError("A channel ID, handle, or name is required")
 
-        effective_privacy = "private" if force_private else self.profile.privacy_status
-        validate_upload_profile(self.profile, requested_privacy=effective_privacy)
+        effective_privacy = "private" if force_private or scheduled_mode else self.profile.privacy_status
+        validate_upload_profile(
+            self.profile,
+            requested_privacy="public" if scheduled_mode else effective_privacy,
+        )
+        if scheduled_mode and not self.profile.approved_pilot_video_id:
+            raise PilotApprovalRequired(
+                "Review and approve the Private pilot before scheduling a publishing batch"
+            )
         if not self.profile.approved_pilot_video_id and not (limit == 1 and force_private):
             raise PilotApprovalRequired(
                 "Upload one Private pilot first, inspect it in YouTube Studio, then approve its video ID"
@@ -151,16 +167,23 @@ class BatchRunner:
             UploadItemResult(status="failed", source_path=issue.path, error_code=issue.code)
             for issue in issues
         ]
-        jobs: list[UploadJob] = []
+        if scheduled_mode and issues:
+            raise ProfileError("Scheduled batches require every selected video and thumbnail to pass preflight")
+
+        prepared: list[tuple[MediaCandidate, MediaFacts, VideoMetadata]] = []
         for candidate in candidates:
-            if limit is not None and len(jobs) >= limit:
+            if limit is not None and len(prepared) >= limit:
                 break
             try:
                 facts = self.probe(candidate.path)
                 metadata = build_metadata(candidate, facts, self.profile)
-                if force_private:
+                if force_private or scheduled_mode:
                     metadata = replace(metadata, privacy_status="private")
-                validate_upload_profile(self.profile, requested_privacy=metadata.privacy_status)
+                validate_upload_profile(
+                    self.profile,
+                    requested_privacy="public" if scheduled_mode else metadata.privacy_status,
+                )
+                prepared.append((candidate, facts, metadata))
             except (MediaProbeError, MetadataError, ProfileError) as exc:
                 report_items.append(
                     UploadItemResult(
@@ -169,8 +192,67 @@ class BatchRunner:
                         error_code=self._error_code(exc),
                     )
                 )
-                continue
-            jobs.append(self.store.get_or_create_job(candidate, channel.channel_id, metadata))
+                if scheduled_mode:
+                    raise ProfileError("Scheduled batches require every video to pass preflight") from exc
+
+        schedule_plan: dict[Path, datetime] | None = None
+        if scheduled_mode:
+            assert schedule_from is not None
+            schedule_plan = plan_daily_pairs(
+                [(candidate, facts) for candidate, facts, _ in prepared], schedule_from
+            )
+
+        jobs: list[UploadJob] = []
+        scheduled_times: dict[str, datetime] = {}
+        scheduled_updates: list[tuple[UploadJob, VideoMetadata, datetime]] = []
+        for candidate, _, metadata in prepared:
+            if schedule_plan is not None:
+                scheduled_at = schedule_plan[candidate.path]
+                metadata = replace(metadata, publish_at=format_publish_at(scheduled_at))
+            job = self.store.get_or_create_job(candidate, channel.channel_id, metadata)
+            if schedule_plan is not None:
+                changed = self._changed_file_status(job)
+                if changed is not None:
+                    raise ProfileError(
+                        f"Scheduled preflight found a changed source or thumbnail ({changed})"
+                    )
+                if job.state in {"failed", "skipped"}:
+                    raise ProfileError("Scheduled batches cannot contain failed or skipped local jobs")
+                if job.id in scheduled_times:
+                    raise ProfileError(
+                        "Scheduled preflight found duplicate video content assigned to multiple daily slots"
+                    )
+                if job.state == "uploading" and (
+                    job.metadata.publish_at != metadata.publish_at
+                    or job.metadata.privacy_status != "private"
+                ):
+                    if job.metadata.publish_at is None or job.metadata.privacy_status != "private":
+                        raise ProfileError(
+                            "A resumable upload already started without a private publish time; reconcile it manually"
+                        )
+                    reconcile_session = getattr(self.api, "reconcile_scheduled_upload", None)
+                    if not callable(reconcile_session):
+                        raise ProfileError("YouTube API cannot safely reconcile a previous scheduled upload")
+                    job = reconcile_session(job)
+                    if job.state == "uploading":
+                        raise ProfileError(
+                            "YouTube received all video bytes but has not confirmed completion; keep the session and retry status reconciliation"
+                        )
+                scheduled_times[job.id] = scheduled_at
+                scheduled_updates.append((job, metadata, scheduled_at))
+            jobs.append(job)
+
+        # Defer all existing-job schedule changes until duplicate identities and
+        # incompatible resumable sessions have been checked for the whole batch.
+        for job, metadata, _ in scheduled_updates:
+            if job.state in {"discovered", "validated"} and job.metadata != metadata:
+                self.store.update_preupload_metadata(job.id, metadata)
+
+        if schedule_plan is not None:
+            jobs = [self.store.get_job(job.id) for job in jobs]
+
+        if schedule_plan is not None and on_schedule_plan is not None:
+            on_schedule_plan(schedule_plan)
 
         if on_preflight is not None:
             predicted_skips = sum(job.state in {"complete", "skipped"} for job in jobs)
@@ -182,24 +264,102 @@ class BatchRunner:
                 self.profile,
             )
 
-        upload_report = self.upload_prepared(jobs)
+        upload_report = self.upload_prepared(jobs, scheduled_times=scheduled_times if schedule_plan is not None else None)
         report_items.extend(upload_report.items)
         return self._report(report_items, stopped_reason=upload_report.stopped_reason)
 
-    def upload_prepared(self, jobs: Sequence[UploadJob]) -> BatchReport:
+    def upload_prepared(
+        self,
+        jobs: Sequence[UploadJob],
+        *,
+        scheduled_times: Mapping[str, datetime] | None = None,
+    ) -> BatchReport:
         """Upload or resume already validated jobs without rescanning a parent folder."""
         items: list[UploadItemResult] = []
         stopped_reason: str | None = None
         for index, prepared in enumerate(jobs):
             if stopped_reason:
-                items.append(UploadItemResult(status="pending_quota", source_path=prepared.path))
+                pending_status = "pending_quota" if stopped_reason == "quota" else "pending_batch"
+                items.append(UploadItemResult(status=pending_status, source_path=prepared.path))
                 continue
             job = self.store.get_job(prepared.id)
+            scheduled_at = (scheduled_times or {}).get(job.id)
             if self.profile.channel_id and job.channel_id != self.profile.channel_id:
                 items.append(
                     UploadItemResult(status="failed", source_path=job.path, error_code="channel_mismatch")
                 )
                 continue
+
+            if scheduled_at is None and job.metadata.publish_at is not None and job.state in {
+                "discovered", "validated", "uploading"
+            }:
+                items.append(UploadItemResult(
+                    status="failed", source_path=job.path,
+                    error_code="scheduled_job_requires_schedule_mode",
+                ))
+                for pending in jobs[index + 1 :]:
+                    items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                stopped_reason = "scheduled_job_requires_schedule_mode"
+                break
+
+            if scheduled_at is not None:
+                try:
+                    parse_publish_at(format_publish_at(scheduled_at))
+                except ValueError as exc:
+                    items.append(UploadItemResult(
+                        status="failed", source_path=job.path,
+                        error_code="publish_time_expired",
+                    ))
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "publish_time_expired"
+                    break
+
+                changed = self._changed_file_status(job)
+                if changed is not None:
+                    items.append(UploadItemResult(
+                        status=changed, source_path=job.path, error_code=changed,
+                    ))
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = changed
+                    break
+
+            if scheduled_at is not None and job.state in {"uploaded", "complete"}:
+                try:
+                    if not job.video_id:
+                        raise VideoSchedulingError("Uploaded job has no YouTube video ID")
+                    schedule_video = getattr(self.api, "schedule_video", None)
+                    if not callable(schedule_video):
+                        raise VideoSchedulingError("YouTube API does not support scheduled publishing")
+                    schedule_video(job.video_id, job.channel_id, scheduled_at)
+                    publish_value = format_publish_at(scheduled_at)
+                    self.store.refresh_api_record(
+                        job.id,
+                        datetime.now(timezone.utc),
+                        {"privacy_status": "private", "publish_at": publish_value},
+                    )
+                    job = self.store.get_job(job.id)
+                except AuthorizationRevokedError:
+                    raise
+                except QuotaExceeded:
+                    items.append(UploadItemResult(
+                        status="failed", source_path=job.path, video_id=job.video_id,
+                        video_url=self._video_url(job.video_id), error_code="quota",
+                    ))
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_quota", source_path=pending.path))
+                    stopped_reason = "quota"
+                    break
+                except Exception as exc:
+                    items.append(UploadItemResult(
+                        status="failed", source_path=job.path, video_id=job.video_id,
+                        video_url=self._video_url(job.video_id), error_code=self._error_code(exc),
+                    ))
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "scheduled_update_failed"
+                    break
 
             if not self.profile.approved_pilot_video_id:
                 actual_visibility = job.api_fields.get("privacy_status")
@@ -236,7 +396,15 @@ class BatchRunner:
                     break
 
             if job.state == "complete":
-                items.append(self._uploaded_item(job, status="skipped_already_uploaded"))
+                if scheduled_at is not None:
+                    items.append(self._uploaded_item(job, status="scheduled_existing"))
+                    if scheduled_at <= datetime.now(scheduled_at.tzinfo):
+                        for pending in jobs[index + 1 :]:
+                            items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                        stopped_reason = "publish_time_expired_after_schedule_update"
+                        break
+                else:
+                    items.append(self._uploaded_item(job, status="skipped_already_uploaded"))
                 continue
             if job.state in {"failed", "skipped"}:
                 status = "failed" if job.state == "failed" else "skipped"
@@ -250,6 +418,16 @@ class BatchRunner:
                 items.append(thumbnail_item)
                 if quota:
                     stopped_reason = "quota"
+                elif scheduled_at is not None and thumbnail_item.error_code == "changed_thumbnail":
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "skipped_changed_thumbnail"
+                    break
+                elif scheduled_at is not None and scheduled_at <= datetime.now(scheduled_at.tzinfo):
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "publish_time_expired_after_schedule_update"
+                    break
                 continue
 
             try:
@@ -261,7 +439,7 @@ class BatchRunner:
                 continue
 
             changed = self._changed_file_status(job)
-            if changed is not None:
+            if changed is not None and scheduled_at is None:
                 self.store.mark_skipped(job.id, changed.removeprefix("skipped_"))
                 items.append(UploadItemResult(status=changed, source_path=job.path, error_code=changed))
                 continue
@@ -299,6 +477,22 @@ class BatchRunner:
                 break
             except Exception as exc:
                 current = self.store.get_job(job.id)
+                if isinstance(exc, (ScheduledPublishTimeExpired, UploadCompletionPending)):
+                    error_code = (
+                        "publish_time_expired"
+                        if isinstance(exc, ScheduledPublishTimeExpired)
+                        else "upload_completion_pending"
+                    )
+                    items.append(UploadItemResult(
+                        status="failed", source_path=job.path,
+                        video_id=current.video_id,
+                        video_url=self._video_url(current.video_id),
+                        error_code=error_code,
+                    ))
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = error_code
+                    break
                 if current.state == "uploaded" and current.video_id:
                     thumbnail_item, quota = self._set_thumbnail(
                         current, self._video_result_from_job(current)
@@ -308,6 +502,11 @@ class BatchRunner:
                         stopped_reason = "quota"
                         for pending in jobs[index + 1 :]:
                             items.append(UploadItemResult(status="pending_quota", source_path=pending.path))
+                        break
+                    if scheduled_at is not None and thumbnail_item.error_code == "changed_thumbnail":
+                        for pending in jobs[index + 1 :]:
+                            items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                        stopped_reason = "skipped_changed_thumbnail"
                         break
                     continue
                 if current.state == "complete" and current.video_id:
@@ -336,13 +535,21 @@ class BatchRunner:
                         error_code=self._error_code(exc),
                     )
                 )
+                if scheduled_at is not None:
+                    for pending in jobs[index + 1 :]:
+                        items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                    stopped_reason = "scheduled_upload_failed"
+                    break
                 continue
 
             if result.actual_visibility in {"private", "unlisted", "public"}:
+                api_fields = {"privacy_status": result.actual_visibility}
+                if job.metadata.publish_at is not None:
+                    api_fields["publish_at"] = job.metadata.publish_at
                 self.store.refresh_api_record(
                     job.id,
                     result.confirmed_at,
-                    {"privacy_status": result.actual_visibility},
+                    api_fields,
                 )
                 uploaded_job = self.store.get_job(job.id)
             thumbnail_item, quota = self._set_thumbnail(uploaded_job, result)
@@ -351,6 +558,16 @@ class BatchRunner:
                 stopped_reason = "quota"
                 for pending in jobs[index + 1 :]:
                     items.append(UploadItemResult(status="pending_quota", source_path=pending.path))
+                break
+            if scheduled_at is not None and thumbnail_item.error_code == "changed_thumbnail":
+                for pending in jobs[index + 1 :]:
+                    items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                stopped_reason = "skipped_changed_thumbnail"
+                break
+            if scheduled_at is not None and scheduled_at <= datetime.now(scheduled_at.tzinfo):
+                for pending in jobs[index + 1 :]:
+                    items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
+                stopped_reason = "publish_time_expired_after_upload"
                 break
         return self._report(items, stopped_reason=stopped_reason)
 
@@ -509,6 +726,7 @@ class BatchRunner:
             actual_visibility=(result.actual_visibility if result else job.api_fields.get("privacy_status", "unknown")),
             thumbnail_status=thumbnail_status or job.thumbnail_status,
             error_code=error_code,
+            scheduled_publish_at=job.api_fields.get("publish_at") or job.metadata.publish_at,
         )
 
     @staticmethod
@@ -517,6 +735,12 @@ class BatchRunner:
 
     @staticmethod
     def _error_code(exc: Exception) -> str:
+        if isinstance(exc, VideoSchedulingError):
+            return exc.error_code
+        if isinstance(exc, ScheduledPublishTimeExpired):
+            return "publish_time_expired"
+        if isinstance(exc, UploadCompletionPending):
+            return "upload_completion_pending"
         if isinstance(exc, ProfileError):
             return "profile_error"
         if isinstance(exc, MetadataError):
@@ -536,6 +760,7 @@ class BatchRunner:
             failed_count=sum(item.status == "failed" for item in items),
             pending_count=sum(item.status.startswith("pending") for item in items),
             stopped_reason=stopped_reason,
+            scheduled_count=sum(item.scheduled_publish_at is not None for item in items),
         )
 
 

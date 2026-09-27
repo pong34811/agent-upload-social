@@ -1,8 +1,8 @@
 # คู่มือใช้งานประจำวัน
 
-คำสั่งทั้งหมดทำงานในเครื่อง Windows และรับเฉพาะโฟลเดอร์ที่ระบุ ไม่เฝ้าดูโฟลเดอร์และไม่อัปโหลดตามเวลาเอง
+คำสั่งทั้งหมดทำงานในเครื่อง Windows และรับเฉพาะโฟลเดอร์ที่ระบุ ไม่เฝ้าดูโฟลเดอร์หรือเริ่มอัปโหลดเองภายหลัง; คำสั่งตั้งเวลาจะส่ง `publishAt` ให้ YouTube ในขณะที่เจ้าของสั่งรัน
 
-ก่อนงานชุดแรกหรือเมื่อ quota ใกล้เต็ม ตรวจ project ใน Google Cloud Console: 24 คลิปใช้ 24 `videos.insert` calls จาก bucket 100 calls/day ของเมธอดนี้ และ thumbnail 24 ภาพใช้ประมาณ 1,200 units จาก bucket ของ endpoint อื่นตาม [quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost) retries ที่เปิด session insert ใหม่อาจเพิ่มจำนวน calls ตัวเลขและ quota อาจเปลี่ยน ตรวจหน้า Quotas ของ project จริงก่อน batch เต็ม
+ก่อนงานชุดแรกหรือเมื่อ quota ใกล้เต็ม ตรวจ project ใน Google Cloud Console: 24 คลิปใช้ 24 `videos.insert` calls จาก bucket 100 calls/day ของเมธอดนี้; thumbnail 24 ภาพใช้ประมาณ 1,200 units; การตั้งเวลา video เดิมใช้ `videos.update` 50 units ต่อคลิปตาม [quota calculator](https://developers.google.com/youtube/v3/determine_quota_cost). retries ที่เปิด session insert ใหม่อาจเพิ่มจำนวน calls ตัวเลขและ quota อาจเปลี่ยน ตรวจหน้า Quotas ของ project จริงก่อน batch เต็ม
 
 ## ตั้งค่า OAuth และโปรไฟล์
 
@@ -33,6 +33,34 @@ kt404-youtube dry-run --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chan
 ```powershell
 kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "Katy404"
 ```
+
+## ตั้งเวลาเผยแพร่
+
+ก่อนตั้งเวลา ต้องตรวจคลิปนำร่องและบันทึก `profile approve-pilot` แล้ว, ผ่าน YouTube API audit, ยืนยันสิทธิ์ assets ที่เกี่ยวข้อง และขอ OAuth consent ใหม่เพื่อเพิ่ม scope `youtube.force-ssl`:
+
+สิทธิ์ที่เจ้าของยืนยันเฉพาะ pilot ผูกกับ video ID นั้นเท่านั้น; การตั้งเวลา/อัปโหลด batch ต้องยืนยันสิทธิ์ assets ของ batch แยกต่างหาก
+
+```powershell
+kt404-youtube auth reauthorize
+```
+
+ตั้งเวลา video เดิมที่โปรแกรมจัดการไว้และยังเป็น Private:
+
+```powershell
+kt404-youtube schedule --video-id VIDEO_ID --publish-at "2026-10-01T07:30:00+07:00"
+```
+
+ตั้งเวลา full batch โดยเรียงชื่อไฟล์แยกตามแนวนอนและแนวตั้ง แล้วกำหนดคู่ลำดับเดียวกันให้อยู่วันเดียวกันและเวลาเดียวกัน:
+
+```powershell
+kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --channel "UCckWRGExmxGqjWjGZgmZypg" --schedule-from "2026-10-01T07:30:00+07:00"
+```
+
+ตัวอย่างนี้กำหนดหนึ่งคลิปแนวนอนและหนึ่งคลิปแนวตั้งต่อวัน เริ่ม 1 ต.ค. 2026 เวลา 07:30 น. ตามเวลาไทย หากโฟลเดอร์มี 12 คู่จะได้ 12 วันถึง 12 ต.ค. คลิปที่อัปโหลดครบแล้วในโฟลเดอร์จะถูกตั้งเวลาตามช่องของตัวเองโดยไม่อัปโหลดซ้ำ; คลิปใหม่จะถูกส่งเป็น Private พร้อม `publishAt`. คำสั่ง batch ต้องสั่งแยกหลังอนุมัติ pilot และไม่มี background uploader
+
+เวลาเผยแพร่จะถูกตรวจซ้ำก่อนสร้าง/ต่อ resumable session และก่อนส่งแต่ละ chunk; ถ้าเวลาผ่านระหว่างงาน ระบบหยุดคิวและคง checkpoint ไว้ให้ตรวจสอบ งานที่มี `publishAt` ค้างจะไม่ถูกส่งต่อด้วย `upload` ปกติ ต้องผ่านคำสั่งตั้งเวลาและ gates เดิมอีกครั้ง
+
+เมื่อเจ้าของสั่ง batch ตั้งเวลาใหม่สำหรับ resumable session เก่า ระบบจะ query session แบบไม่ส่งวิดีโอเพิ่มก่อน หาก YouTube ยืนยันว่าอัปโหลดเสร็จแล้ว ระบบบันทึก video ID และตั้งเวลาวิดีโอเดิม; หากยังไม่เสร็จหรือ session หมดอายุ ระบบละทิ้ง session นั้นในเครื่องและเริ่มไฟล์ใหม่ด้วยเวลาที่เจ้าของระบุ
 
 ### เมื่อไม่มี OAuth credential
 
@@ -110,4 +138,4 @@ maintenance ล้าง resumable session URL ที่ไม่ได้ใช
 
 นี่เป็น **asset inventory** ไม่ใช่ CLI metadata dry-run เต็ม; ยังไม่ได้ตรวจ title/description/tags เทียบกับโปรไฟล์จริง เพราะเจ้าของยังไม่ได้ตั้ง category, description, Made for Kids, synthetic-media และ Official Artist Channel ในโปรไฟล์ ต้องตั้งค่า/ตรวจข้อเท็จจริงเหล่านี้ก่อน dry-run เต็ม
 
-คลิปนำร่องและ batch ยังไม่ได้อัปโหลด: ขั้นต่อไปต้องมี Desktop OAuth JSON ที่เจ้าของเลือกจาก Google Cloud, ตั้งโปรไฟล์/ยืนยันค่า metadata ตามข้อเท็จจริง, แล้วรัน dry-run เต็มและ Private pilot; batch เต็มต้องรอเจ้าของตรวจ pilot แล้วอนุมัติ video ID ก่อน
+คลิปนำร่องอัปโหลดเป็น Private แล้ว; เจ้าของยังต้องตรวจใน YouTube Studio และอนุมัติ video ID ก่อน batch. Batch เต็มยังไม่ได้อัปโหลดหรือตั้งเวลา

@@ -23,6 +23,7 @@ TOKEN_REVOCATION_URL = "https://oauth2.googleapis.com/revoke"
 SCOPES = (
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 )
 OAUTH_AUTHORIZATION_TIMEOUT_SECONDS = 600
 TOKEN_FILENAME = "token_waritnan34811.json"
@@ -184,7 +185,9 @@ class CredentialStore:
                 return None
             try:
                 data = json.loads(serialized)
-                return Credentials.from_authorized_user_info(data, scopes=SCOPES)
+                serialized_data = dict(data)
+                serialized_data.pop("_kt404_granted_scopes", None)
+                return Credentials.from_authorized_user_info(serialized_data)
             except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
                 raise CredentialStoreError("Stored OAuth credential data is invalid") from exc
 
@@ -200,11 +203,57 @@ class CredentialStore:
         if serialized_data is None:
             return None
         try:
-            return Credentials.from_authorized_user_info(serialized_data, scopes=SCOPES)
+            serialized_data = dict(serialized_data)
+            serialized_data.pop("_kt404_granted_scopes", None)
+            return Credentials.from_authorized_user_info(serialized_data)
         except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
             raise CredentialStoreError("Stored OAuth credential data is invalid") from exc
 
-    def save(self, account_key: str, credentials: Credentials) -> None:
+    def has_required_scopes(self, account_key: str) -> bool:
+        """Check stored granted scopes without returning credential contents."""
+        self._validate_account_key(account_key)
+        if self._backend is not None:
+            try:
+                serialized = self._backend.get_password(CREDENTIAL_SERVICE, account_key)
+            except Exception as exc:
+                raise CredentialStoreError("Could not read legacy credential storage") from exc
+            if serialized is None:
+                return False
+            try:
+                account_data = json.loads(serialized)
+            except (TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise CredentialStoreError("Stored OAuth credential data is invalid") from exc
+        else:
+            account_path = self._account_path(account_key)
+            data = self._load_file_data(account_path)
+            if data is None and account_key != OWNER_ACCOUNT_KEY:
+                self._migrate_combined_account(account_key)
+                data = self._load_file_data(account_path)
+            if data is None:
+                return False
+            account_data = data if self._is_legacy_credential(data) else data.get(account_key)
+        if not isinstance(account_data, dict):
+            return False
+        # Requested scopes are not proof of consent. Only authorize_desktop writes
+        # this marker after the completed consent response confirms the grant.
+        scopes_value = account_data.get("_kt404_granted_scopes")
+        if isinstance(scopes_value, str):
+            granted = set(scopes_value.split())
+        elif isinstance(scopes_value, (list, tuple)):
+            granted = {scope for scope in scopes_value if isinstance(scope, str)}
+        else:
+            return False
+        if "https://www.googleapis.com/auth/youtube" in granted:
+            return True
+        return set(SCOPES).issubset(granted)
+
+    def save(
+        self,
+        account_key: str,
+        credentials: Credentials,
+        *,
+        granted_scopes: Sequence[str] | None = None,
+    ) -> None:
         self._validate_account_key(account_key)
         try:
             serialized = credentials.to_json()
@@ -218,10 +267,36 @@ class CredentialStore:
 
         if self._backend is not None:
             try:
-                self._backend.set_password(CREDENTIAL_SERVICE, account_key, serialized)
+                existing_serialized = self._backend.get_password(CREDENTIAL_SERVICE, account_key)
+                existing_data = json.loads(existing_serialized) if existing_serialized else {}
+                if granted_scopes is not None:
+                    values = granted_scopes.split() if isinstance(granted_scopes, str) else granted_scopes
+                    data["_kt404_granted_scopes"] = sorted(set(values))
+                elif isinstance(existing_data, dict) and "_kt404_granted_scopes" in existing_data:
+                    data["_kt404_granted_scopes"] = existing_data["_kt404_granted_scopes"]
+                self._backend.set_password(
+                    CREDENTIAL_SERVICE, account_key, json.dumps(data, ensure_ascii=True, separators=(",", ":"))
+                )
             except Exception as exc:
                 raise CredentialStoreError("Could not store legacy credential data") from exc
             return
+
+        if granted_scopes is not None:
+            values = granted_scopes.split() if isinstance(granted_scopes, str) else granted_scopes
+            data["_kt404_granted_scopes"] = sorted(set(values))
+        else:
+            existing_data = self._load_file_data(self._account_path(account_key))
+            if isinstance(existing_data, dict) and not self._is_legacy_credential(existing_data):
+                existing_data = existing_data.get(account_key)
+            if existing_data is None:
+                combined = self._load_file_data()
+                existing_data = (
+                    combined.get(account_key)
+                    if isinstance(combined, dict) and not self._is_legacy_credential(combined)
+                    else None
+                )
+            if isinstance(existing_data, dict) and "_kt404_granted_scopes" in existing_data:
+                data["_kt404_granted_scopes"] = existing_data["_kt404_granted_scopes"]
 
         if account_key == OWNER_ACCOUNT_KEY:
             existing = self._load_file_data() or {}
@@ -321,7 +396,12 @@ def authorize_desktop(
         prompt="consent" if account_key == OWNER_ACCOUNT_KEY else "select_account consent",
         timeout_seconds=OAUTH_AUTHORIZATION_TIMEOUT_SECONDS,
     )
-    credential_store.save(account_key, credentials)
+    granted_scopes = getattr(credentials, "granted_scopes", None)
+    if not granted_scopes:
+        # Google omits a distinct granted_scopes list when consent matched the
+        # requested set; in that case the successful consent response uses scopes.
+        granted_scopes = getattr(credentials, "scopes", None)
+    credential_store.save(account_key, credentials, granted_scopes=granted_scopes or ())
     return credentials
 
 

@@ -16,7 +16,7 @@ from .models import MediaCandidate, UploadJob, VideoMetadata
 
 _STATES = {"discovered", "validated", "uploading", "uploaded", "complete", "failed", "skipped"}
 _TERMINAL_STATES = {"complete", "failed", "skipped"}
-_API_FIELDS = {"title", "description", "privacy_status", "thumbnail_url", "published_at"}
+_API_FIELDS = {"title", "description", "privacy_status", "thumbnail_url", "published_at", "publish_at"}
 _API_REFRESH_DUE_DAYS = 29
 _API_DATA_EXPIRY_DAYS = 30
 
@@ -160,6 +160,19 @@ class JobStore:
             raise KeyError(job_id)
         return self._job_from_row(row)
 
+    def get_job_by_video_id(self, video_id: str, channel_id: str) -> UploadJob | None:
+        """Find one locally managed video under the requested channel."""
+        if not video_id or not channel_id:
+            raise ValueError("video_id and channel_id are required")
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM jobs WHERE video_id = ? AND channel_id = ? ORDER BY created_at LIMIT 2",
+                (video_id, channel_id),
+            ).fetchall()
+        if len(rows) > 1:
+            raise JobStateError("Multiple local jobs point to the same YouTube video ID")
+        return self._job_from_row(rows[0]) if rows else None
+
     def mark_validated(self, job_id: str) -> None:
         with self._connect() as connection:
             row = self._require_job(connection, job_id)
@@ -180,6 +193,21 @@ class JobStore:
             if row["state"] not in {"validated", "uploading"}:
                 raise JobStateError(f"An upload session requires a validated job; current state is {row['state']}")
             self._update(connection, job_id, state="uploading", session_uri=session_uri, offset=offset)
+
+    def retire_upload_session(self, job_id: str) -> None:
+        """Forget a reconciled incomplete resumable session before a new schedule."""
+        with self._connect() as connection:
+            row = self._require_job(connection, job_id)
+            if row["state"] != "uploading":
+                raise JobStateError(f"Cannot retire an upload session in state {row['state']}")
+            self._update(
+                connection,
+                job_id,
+                state="validated",
+                session_uri=None,
+                offset=0,
+                failure_code=None,
+            )
 
     def mark_video_uploaded(self, job_id: str, video_id: str, confirmed_at: datetime | str) -> None:
         if not video_id or not video_id.strip():
