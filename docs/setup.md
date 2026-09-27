@@ -73,7 +73,7 @@ ffprobe -version
 C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 ```
 
-ตรวจว่าไฟล์เป็น JSON แบบ Desktop/Installed (`installed` object มี `client_id`, `client_secret` และ `project_id`) อย่าแก้ค่าภายในไฟล์เอง ไฟล์นี้ถูก `.gitignore` กันไว้อยู่แล้ว
+ตรวจว่าไฟล์เป็น JSON แบบ Desktop/Installed (`installed` object มี `client_id` และ `client_secret`) อย่าแก้ค่าภายในไฟล์เอง ไฟล์นี้ถูก `.gitignore` กันไว้อยู่แล้ว
 
 ## 4. สร้าง OAuth credential
 

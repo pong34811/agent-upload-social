@@ -12,7 +12,7 @@ NOW = datetime(2026, 9, 26, tzinfo=timezone.utc)
 def valid_profile(tmp_path):
     secrets_path = tmp_path / "client_secrets.json"
     secrets_path.write_text(
-        '{"installed":{"project_id":"owner-selected-upload-project"}}', encoding="utf-8"
+        '{"installed":{"client_id":"client-id","client_secret":"client-secret"}}', encoding="utf-8"
     )
     return UploadProfile(
         channel_alias="Katy404",

@@ -83,7 +83,7 @@ def test_invalid_grant_removes_token_and_raises_revoked_error(fake_keyring, expi
 def test_authorize_uses_desktop_flow_and_saves_owner_credential(tmp_path, fake_keyring, monkeypatch):
     secrets_path = tmp_path / "client_secrets.json"
     secrets_path.write_text(
-        '{"installed":{"project_id":"owner-selected-upload-project","client_id":"client-id"}}',
+        '{"installed":{"client_id":"client-id","client_secret":"client-secret"}}',
         encoding="utf-8",
     )
     flow = Mock()
@@ -109,7 +109,7 @@ def test_authorize_uses_desktop_flow_and_saves_owner_credential(tmp_path, fake_k
 def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_path, fake_keyring, monkeypatch):
     secrets_path = tmp_path / "client_secrets.json"
     secrets_path.write_text(
-        '{"installed":{"project_id":"owner-selected-upload-project","client_id":"client-id"}}',
+        '{"installed":{"client_id":"client-id","client_secret":"client-secret"}}',
         encoding="utf-8",
     )
     events = []
@@ -144,9 +144,12 @@ def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_
     )
 
 
-def test_authorize_accepts_owner_selected_desktop_project(tmp_path, fake_keyring, monkeypatch):
+def test_authorize_accepts_desktop_client_without_project_metadata(tmp_path, fake_keyring, monkeypatch):
     secrets_path = tmp_path / "client_secrets.json"
-    secrets_path.write_text('{"installed":{"project_id":"old-project"}}', encoding="utf-8")
+    secrets_path.write_text(
+        '{"installed":{"client_id":"client-id","client_secret":"client-secret"}}',
+        encoding="utf-8",
+    )
     flow = Mock()
     flow.run_local_server.return_value = fake_credentials()
     flow_factory = Mock(return_value=flow)

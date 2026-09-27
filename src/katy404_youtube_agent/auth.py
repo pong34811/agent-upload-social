@@ -300,9 +300,6 @@ def _validate_desktop_client(client_secrets_path: Path) -> None:
     installed = data.get("installed") if isinstance(data, dict) else None
     if not isinstance(installed, dict):
         raise OAuthConfigurationError("OAuth client must use the Desktop installed-app format")
-    project_id = installed.get("project_id")
-    if not isinstance(project_id, str) or not project_id.strip():
-        raise OAuthConfigurationError("Desktop OAuth client is missing project_id")
 
 
 def authorize_desktop(

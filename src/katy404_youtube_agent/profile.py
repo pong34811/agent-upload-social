@@ -140,6 +140,5 @@ def validate_upload_profile(profile: UploadProfile, *, requested_privacy: str) -
     except (OSError, json.JSONDecodeError) as exc:
         raise ProfileError("Could not read Desktop OAuth client file") from exc
     installed = oauth_data.get("installed") if isinstance(oauth_data, dict) else None
-    project_id = installed.get("project_id") if isinstance(installed, dict) else None
-    if not isinstance(installed, dict) or not isinstance(project_id, str) or not project_id.strip():
-        raise ProfileError("Desktop OAuth client must contain installed.project_id")
+    if not isinstance(installed, dict):
+        raise ProfileError("Desktop OAuth client must use the installed-app format")

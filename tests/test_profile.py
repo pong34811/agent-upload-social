@@ -31,10 +31,13 @@ def test_nonprivate_upload_requires_recorded_youtube_api_audit(
         validate_upload_profile(profile, requested_privacy=requested_privacy)
 
 
-def test_profile_accepts_owner_selected_desktop_oauth_project(tmp_path, valid_profile):
+def test_profile_accepts_desktop_oauth_without_project_metadata(tmp_path, valid_profile):
     secrets_path = tmp_path / "client_secrets.json"
     secrets_path.write_text(
-        json.dumps({"installed": {"project_id": "legacy-project"}}), encoding="utf-8"
+        json.dumps(
+            {"installed": {"client_id": "client-id", "client_secret": "client-secret"}}
+        ),
+        encoding="utf-8",
     )
     profile = dataclasses.replace(valid_profile, client_secrets_path=secrets_path)
 
