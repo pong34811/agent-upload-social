@@ -327,10 +327,10 @@ class BatchRunner:
                     job = self.store.get_job(job.id)
                 except AuthorizationRevokedError:
                     raise
-                except QuotaExceeded:
+                except QuotaExceeded as exc:
                     items.append(UploadItemResult(
                         status="failed", source_path=job.path, video_id=job.video_id,
-                        video_url=self._video_url(job.video_id), error_code="quota",
+                        video_url=self._video_url(job.video_id), error_code=exc.error_code,
                     ))
                     for pending in jobs[index + 1 :]:
                         items.append(UploadItemResult(status="pending_quota", source_path=pending.path))
@@ -404,7 +404,7 @@ class BatchRunner:
                 uploaded_job = self.store.get_job(job.id)
             except AuthorizationRevokedError:
                 raise
-            except QuotaExceeded:
+            except QuotaExceeded as exc:
                 stopped_reason = "quota"
                 current = self.store.get_job(job.id)
                 if scheduled_at is not None and current.video_id:
@@ -412,7 +412,7 @@ class BatchRunner:
                         status="failed", source_path=job.path,
                         video_id=current.video_id,
                         video_url=self._video_url(current.video_id),
-                        error_code="quota",
+                        error_code=exc.error_code,
                     ))
                 elif current.state == "uploaded" and current.video_id:
                     self.store.mark_thumbnail_result(job.id, success=False)
@@ -423,13 +423,13 @@ class BatchRunner:
                             result=self._video_result_from_job(current),
                             status="uploaded_thumbnail_failed",
                             thumbnail_status="failed",
-                            error_code="quota",
+                            error_code=exc.error_code,
                         )
                     )
                 elif current.state == "complete" and current.video_id:
                     items.append(self._uploaded_item(current, status="uploaded", thumbnail_status="success"))
                 else:
-                    items.append(UploadItemResult(status="pending_quota", source_path=job.path))
+                    items.append(UploadItemResult(status="pending_quota", source_path=job.path, error_code=exc.error_code))
                 for pending in jobs[index + 1 :]:
                     items.append(UploadItemResult(status="pending_quota", source_path=pending.path))
                 break
@@ -619,7 +619,7 @@ class BatchRunner:
                 )
         except AuthorizationRevokedError:
             raise
-        except QuotaExceeded:
+        except QuotaExceeded as exc:
             self.store.mark_thumbnail_result(job.id, success=False)
             return (
                 self._uploaded_item(
@@ -627,7 +627,7 @@ class BatchRunner:
                     result=result,
                     status="uploaded_thumbnail_failed",
                     thumbnail_status="failed",
-                    error_code="quota",
+                    error_code=exc.error_code,
                 ),
                 True,
             )

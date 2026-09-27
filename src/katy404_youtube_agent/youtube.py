@@ -71,6 +71,17 @@ class UploadCompletionPending(UploadError):
 class QuotaExceeded(RuntimeError):
     """Raised for a daily or upload quota limit; the rest of the queue must stop."""
 
+    def __init__(self, message: str, *, reason: str | None = None) -> None:
+        super().__init__(message)
+        # Only known API codes may leave the transport; never expose response text.
+        self.error_code = {
+            "quotaexceeded": "quotaExceeded",
+            "dailylimitexceeded": "dailyLimitExceeded",
+            "dailylimitexceededunreg": "dailyLimitExceededUnreg",
+            "uploadlimitexceeded": "uploadLimitExceeded",
+            "userlimitexceeded": "userLimitExceeded",
+        }.get(reason, "quota")
+
 
 class ThumbnailError(RuntimeError):
     """A custom thumbnail failed independently from the uploaded video."""
@@ -241,8 +252,9 @@ class ResumableTransport:
             for item in error.get("errors", [])
             if isinstance(item, dict)
         ]
-        if any(reason in _QUOTA_REASONS for reason in reasons):
-            raise QuotaExceeded("YouTube upload quota was reached; remaining files were left pending")
+        quota_reason = next((reason for reason in reasons if reason in _QUOTA_REASONS), None)
+        if quota_reason:
+            raise QuotaExceeded("YouTube upload limit was reached; remaining files were left pending", reason=quota_reason)
         status = int(response.status_code)
         if status in {408, 429, 500, 502, 503, 504}:
             retry_after = response.headers.get("Retry-After")
@@ -526,7 +538,7 @@ class YouTubeApi(ChannelApi):
         except HttpError as exc:
             reason = _http_error_reason(exc)
             if reason in _QUOTA_REASONS:
-                raise QuotaExceeded("YouTube thumbnail quota was reached; remaining files were left pending") from exc
+                raise QuotaExceeded("YouTube thumbnail limit was reached; remaining files were left pending", reason=reason) from exc
             status = int(getattr(exc.resp, "status", 0))
             raise ThumbnailError(
                 f"YouTube rejected the custom thumbnail ({reason or status})",
@@ -585,7 +597,7 @@ class YouTubeApi(ChannelApi):
         except HttpError as exc:
             reason = _http_error_reason(exc)
             if reason in _QUOTA_REASONS:
-                raise QuotaExceeded("YouTube scheduling quota was reached; remaining files were left pending") from exc
+                raise QuotaExceeded("YouTube scheduling limit was reached; remaining files were left pending", reason=reason) from exc
             if reason in {"insufficientpermissions", "forbidden", "forbiddenprivacysetting"}:
                 raise VideoSchedulingError(
                     "YouTube rejected scheduling; reauthorize with the metadata-edit permission and check channel access",
@@ -614,8 +626,9 @@ class YouTubeApi(ChannelApi):
                     None,
                 )
             except HttpError as exc:
-                if _http_error_reason(exc) in _QUOTA_REASONS:
-                    raise QuotaExceeded("YouTube schedule verification quota was reached") from exc
+                reason = _http_error_reason(exc)
+                if reason in _QUOTA_REASONS:
+                    raise QuotaExceeded("YouTube schedule verification limit was reached", reason=reason) from exc
                 raise VideoSchedulingError(
                     "Could not confirm the publish time with YouTube; keep the uploaded video ID and retry",
                     "schedule_unconfirmed",

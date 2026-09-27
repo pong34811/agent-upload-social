@@ -30,7 +30,7 @@ from .profile import (
 from .runner import BatchRunner
 from .scheduling import format_publish_at, parse_publish_at
 from .store import JobStateError, JobStore
-from .youtube import VideoSchedulingError, YouTubeApi
+from .youtube import QuotaExceeded, VideoSchedulingError, YouTubeApi
 
 
 GOOGLE_SECURITY_URL = "https://security.google.com/settings/security/permissions"
@@ -646,6 +646,9 @@ class CliApp:
         except VideoSchedulingError as exc:
             print(f"ตั้งเวลาไม่ได้: {self._safe_error(exc)}", file=sys.stderr)
             return 1
+        except QuotaExceeded as exc:
+            print(f"YouTube หยุดการตั้งเวลา: {exc.error_code}", file=sys.stderr)
+            return 1
         except Exception as exc:
             print(f"ตั้งเวลาไม่สำเร็จ ({type(exc).__name__})", file=sys.stderr)
             return 1
@@ -844,7 +847,18 @@ class CliApp:
         if report.scheduled_count:
             print(f"ตั้งเวลาเผยแพร่แล้ว: {report.scheduled_count}")
         if report.stopped_reason:
-            print(f"หยุดคิว: {report.stopped_reason}")
+            limit_messages = {
+                "uploadLimitExceeded": "ช่องถึงขีดจำกัดจำนวนวิดีโอที่อัปโหลดต่อวัน",
+                "quotaExceeded": "คำขอเกินโควตา API ที่ Google อนุญาต",
+                "dailyLimitExceeded": "คำขอเกินขีดจำกัด API รายวัน",
+                "dailyLimitExceededUnreg": "คำขอเกินขีดจำกัดรายวันของ client ที่ไม่ลงทะเบียน",
+                "userLimitExceeded": "คำขอเกินขีดจำกัดของผู้ใช้",
+            }
+            reason = next((item.error_code for item in report.items if item.error_code in limit_messages), None)
+            if report.stopped_reason == "quota" and reason:
+                print(f"หยุดคิว: {reason} — {limit_messages[reason]}")
+            else:
+                print(f"หยุดคิว: {report.stopped_reason}")
         for item in report.items:
             if item.scheduled_publish_at and item.video_url:
                 print(f"{item.status} (Private จนถึง {item.scheduled_publish_at}): {item.video_url}")

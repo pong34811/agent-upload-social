@@ -188,12 +188,13 @@ def test_retry_after_thumbnail_failure_does_not_insert_video_again(fake_api, run
 
 
 def test_quota_error_stops_remaining_files_without_retrying_them(fake_api, runner, two_prepared_jobs):
-    fake_api.begin_upload.side_effect = QuotaExceeded("daily quota reached")
+    fake_api.begin_upload.side_effect = QuotaExceeded("upload limit reached", reason="uploadlimitexceeded")
 
     report = runner.upload_prepared(two_prepared_jobs)
 
     assert report.stopped_reason == "quota"
     assert report.pending_count == 2
+    assert report.items[0].error_code == "uploadLimitExceeded"
     assert fake_api.begin_upload.call_count == 1
 
 

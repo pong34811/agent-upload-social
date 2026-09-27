@@ -15,7 +15,24 @@ from katy404_youtube_agent.auth import (
 )
 from katy404_youtube_agent.cli import CliApp, OAuthService
 from katy404_youtube_agent.local_oauth_status import LocalOAuthStatusPage
-from katy404_youtube_agent.models import ApiVideoSnapshot, BatchReport
+from katy404_youtube_agent.models import ApiVideoSnapshot, BatchReport, UploadItemResult
+
+
+def test_upload_limit_report_identifies_channel_limit(capsys):
+    report = BatchReport(
+        items=[UploadItemResult(
+            status="pending_quota", source_path=Path("clip.mov"), error_code="uploadLimitExceeded",
+        )],
+        uploaded_count=0, skipped_count=0, failed_count=0, pending_count=1,
+        stopped_reason="quota",
+    )
+
+    CliApp._print_report(report)
+
+    output = capsys.readouterr().out
+    assert "หยุดคิว: uploadLimitExceeded" in output
+    assert "ช่องถึงขีดจำกัดจำนวนวิดีโอที่อัปโหลดต่อวัน" in output
+    assert "หยุดคิว: quota" not in output
 
 
 class RecordingOAuthStatusPage:

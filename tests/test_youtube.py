@@ -217,14 +217,17 @@ def test_transport_upload_chunk_parses_final_video_response(upload_job):
     assert session.calls[0][2]["headers"]["Content-Range"] == "bytes 0-4/5"
 
 
-def test_transport_maps_daily_quota_to_queue_stopping_error():
+@pytest.mark.parametrize("reason", ["quotaExceeded", "uploadLimitExceeded", "dailyLimitExceeded"])
+def test_transport_preserves_limit_reason_without_response_message(reason):
     session = FakeSession(FakeResponse(403, payload={
-        "error": {"errors": [{"reason": "quotaExceeded"}], "message": "quota"}
+        "error": {"errors": [{"reason": reason}], "message": "private response text"}
     }))
     transport = ResumableTransport(credentials=None, session=session)
 
-    with pytest.raises(QuotaExceeded):
+    with pytest.raises(QuotaExceeded) as failure:
         transport.query_session("https://upload.example.test/session", 5)
+    assert failure.value.error_code == reason
+    assert "private response text" not in str(failure.value)
 
 
 def test_transport_marks_server_failures_retryable():
