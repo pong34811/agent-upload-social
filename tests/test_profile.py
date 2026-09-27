@@ -49,13 +49,6 @@ def test_unknown_privacy_is_rejected(valid_profile):
         validate_upload_profile(valid_profile, requested_privacy="friends")
 
 
-def test_asset_rights_must_be_explicitly_confirmed(valid_profile):
-    profile = dataclasses.replace(valid_profile, asset_rights_confirmed=False)
-
-    with pytest.raises(ProfileError, match="rights"):
-        validate_upload_profile(profile, requested_privacy="private")
-
-
 def test_profile_store_round_trips_path_fields(tmp_path, valid_profile):
     path = tmp_path / "profile.json"
 

@@ -14,7 +14,7 @@ kt404-youtube profile setup
 kt404-youtube profile show
 ```
 
-`auth token --client-secrets <พาธ Desktop OAuth JSON>` สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API ส่วน `profile setup` ใช้ OAuth อ่านรายชื่อช่อง แล้วให้เจ้าของเลือกช่องและยืนยันคำอธิบาย/Tags, category, privacy, Made for Kids, synthetic media, Official Artist Channel และสิทธิ์ assets
+`auth token --client-secrets <พาธ Desktop OAuth JSON>` สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API ส่วน `profile setup` ใช้ OAuth อ่านรายชื่อช่อง แล้วให้เจ้าของเลือกช่องและยืนยันคำอธิบาย/Tags, category, privacy, Made for Kids, synthetic media และ Official Artist Channel
 
 ทั้งสองคำสั่งไม่อัปโหลดวิดีโอ
 
@@ -70,10 +70,9 @@ kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chann
 ```powershell
 kt404-youtube profile set-privacy private
 kt404-youtube profile set-api-audit-status passed
-kt404-youtube profile set-asset-rights-status confirmed
 ```
 
-ใช้ `set-api-audit-status passed` หลังจากแยกตรวจ YouTube API audit เรียบร้อยแล้วเท่านั้น Public และ Unlisted จะถูกปิดจนกว่าจะผ่าน audit ส่วนคำสั่งสิทธิ์ assets คือการยืนยันของเจ้าของ ไม่ใช่การตรวจลิขสิทธิ์อัตโนมัติ
+ใช้ `set-api-audit-status passed` หลังจากแยกตรวจ YouTube API audit เรียบร้อยแล้วเท่านั้น Public และ Unlisted จะถูกปิดจนกว่าจะผ่าน audit
 
 ## ลบข้อมูล API หรือยกเลิก OAuth
 
@@ -84,7 +83,7 @@ kt404-youtube profile revoke-authorization --channel-id CHANNEL_ID
 
 คำสั่งลบข้อมูลลบ job/API-derived records, resumable state, channel ID และ pilot ID ที่ผูกกับ channel ID ในเครื่อง แต่คงการตั้งค่าปฏิบัติงานของโปรไฟล์ไว้ และไม่ลบวิดีโอบน YouTube การลบ state ทำให้ hash เดิมไม่ถูกกันซ้ำอีกในครั้งถัดไป คำสั่ง revoke ส่งคำขอยกเลิก grant กับ Google, ลบเฉพาะไฟล์ token ของ OAuth account ที่ผูกกับโปรไฟล์ และลบข้อมูลของช่อง หากติดต่อ Google ไม่ได้ ให้ตรวจรายการแอปที่เชื่อมไว้ใน [Google Security permissions](https://security.google.com/settings/security/permissions)
 
-ตัวโปรแกรมเก็บ OAuth ได้หลายชุดเป็นไฟล์แยก เช่น `token_lamaixcom3481.json`; ตรวจชื่อที่มีได้ด้วย `kt404-youtube auth accounts`; คำสั่ง revoke ลบเฉพาะ credential ที่ผูกกับโปรไฟล์ปัจจุบัน
+ตัวโปรแกรมเก็บ OAuth ได้หลายชุดเป็นไฟล์แยก เช่น `token_waritnan34811.json`; ตรวจชื่อที่มีได้ด้วย `kt404-youtube auth accounts`; คำสั่ง revoke ลบเฉพาะ credential ที่ผูกกับโปรไฟล์ปัจจุบัน
 
 ## Maintenance รายสัปดาห์
 
@@ -108,6 +107,6 @@ maintenance ล้าง resumable session URL ที่ไม่ได้ใช
 - `ffprobe` อ่านคลิปได้ครบ: แนวนอน 12, แนวตั้ง 12
 - ไม่มี OAuth, YouTube API request หรือ upload ในการตรวจนี้
 
-นี่เป็น **asset inventory** ไม่ใช่ CLI metadata dry-run เต็ม; ยังไม่ได้ตรวจ title/description/tags เทียบกับโปรไฟล์จริง เพราะเจ้าของยังไม่ได้ตั้ง category, description, Made for Kids, synthetic-media, Official Artist Channel และ rights declarations ในโปรไฟล์ ต้องตั้งค่า/ตรวจข้อเท็จจริงเหล่านี้ก่อน dry-run เต็ม
+นี่เป็น **asset inventory** ไม่ใช่ CLI metadata dry-run เต็ม; ยังไม่ได้ตรวจ title/description/tags เทียบกับโปรไฟล์จริง เพราะเจ้าของยังไม่ได้ตั้ง category, description, Made for Kids, synthetic-media และ Official Artist Channel ในโปรไฟล์ ต้องตั้งค่า/ตรวจข้อเท็จจริงเหล่านี้ก่อน dry-run เต็ม
 
-คลิปนำร่องและ batch ยังไม่ได้อัปโหลด: ขั้นต่อไปต้องมี Desktop OAuth JSON ที่เจ้าของเลือกจาก Google Cloud, ตั้งโปรไฟล์/ยืนยันค่า metadata และสิทธิ์ตามข้อเท็จจริง, แล้วรัน dry-run เต็มและ Private pilot; batch เต็มต้องรอเจ้าของตรวจ pilot แล้วอนุมัติ video ID ก่อน
+คลิปนำร่องและ batch ยังไม่ได้อัปโหลด: ขั้นต่อไปต้องมี Desktop OAuth JSON ที่เจ้าของเลือกจาก Google Cloud, ตั้งโปรไฟล์/ยืนยันค่า metadata ตามข้อเท็จจริง, แล้วรัน dry-run เต็มและ Private pilot; batch เต็มต้องรอเจ้าของตรวจ pilot แล้วอนุมัติ video ID ก่อน

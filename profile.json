@@ -1,12 +1,12 @@
 {
-  "channel_alias": "waritna34811",
+  "channel_alias": "waritnan34811",
   "client_secrets_path": "client_secrets.json",
-  "oauth_account_key": "lamaixcom3481",
-  "channel_id": null,
-  "privacy_status": null,
+  "oauth_account_key": "waritnan34811",
+  "channel_id": "UCckWRGExmxGqjWjGZgmZypg",
+  "privacy_status": "private",
   "api_audit_passed": false,
   "category_id": "22",
-  "description_template": "🙏 **ขอบคุณทุกคนมาก ๆ ที่เข้ามารับชมคลิปนี้นะครับ**\nถ้าชอบคลิปนี้ อย่าลืมช่วยกัน\n👉 กดติดตาม | 👍 กดไลก์ | 🔁 กดแชร์\nเพื่อเป็นกำลังใจให้ **Katy404** ด้วยนะครับ 💖\n\n━━━━━━━━━━━━━━━\n📌 **ช่องทางติดตาม Katy404**\n▶️ **YouTube**\nhttps://www.youtube.com/channel/UCXT92S422lAnfBfsPrxpEFw\n\n💬 **Discord (พูดคุย / แจ้งข่าวสาร)**\nhttps://discord.gg/TpCtZVjvA7\n\n🐦 **X (Twitter)**\nhttps://x.com/KATY404\n\n━━━━━━━━━━━━━━━\n💝 **สนับสนุนค่าขนม / Donate**\nhttps://furipay.me/en/Katy404\n\n━━━━━━━━━━━━━━━\n🏷️ **Tags**\n#katy404 #vtuberth #วีทูปเบอร์มือใหม่ #วีทูปเบอร์ไทย",
+  "description_template": "🙏 **ขอบคุณทุกคนมาก ๆ ที่เข้ามารับชมคลิปนี้นะครับ**\nถ้าชอบคลิปนี้ อย่าลืมช่วยกัน\n👉 กดติดตาม | 👍 กดไลก์ | 🔁 กดแชร์\nเพื่อเป็นกำลังใจให้ **Katy404** ด้วยนะครับ 💖\n\n━━━━━━━━━━━━━━━\n📌 **ช่องทางติดตาม Katy404**\n▶️ **YouTube**\n[https://www.youtube.com/channel/UCXT92S422lAnfBfsPrxpEFw](https://www.youtube.com/channel/UCXT92S422lAnfBfsPrxpEFw)\n\n💬 **Discord (พูดคุย / แจ้งข่าวสาร)**\n[https://discord.gg/TpCtZVjvA7](https://discord.gg/TpCtZVjvA7)\n\n🐦 **X (Twitter)**\n[https://x.com/KATY404](https://x.com/KATY404)_\n\n━━━━━━━━━━━━━━━\n💝 **สนับสนุนค่าขนม / Donate**\n[https://furipay.me/en/Katy404](https://furipay.me/en/Katy404)\n\n━━━━━━━━━━━━━━━\n🏷️ **Tags**\n#katy404 #vtuberth #วีทูปเบอร์มือใหม่ #วีทูปเบอร์ไทย",
   "tags": [
     "vtuberthai",
     "vtuberth",
@@ -44,13 +44,11 @@
     "vtubermemes",
     "envtuberclip",
     "yt shorts",
-    "katy404",
-    "เคอรัส"
+    "katy404"
   ],
   "made_for_kids": false,
-  "contains_synthetic_media": null,
-  "is_official_artist_channel": null,
-  "asset_rights_confirmed": null,
+  "contains_synthetic_media": false,
+  "is_official_artist_channel": false,
   "shorts_title_suffix": "",
   "approved_pilot_video_id": null
 }

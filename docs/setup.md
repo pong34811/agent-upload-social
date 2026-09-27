@@ -77,13 +77,13 @@ C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 
 ## 4. สร้าง OAuth credential
 
-ใน preset ปัจจุบัน `profile.json` ระบุ OAuth account label เป็น `lamaixcom3481` จึงต้องใช้ label เดียวกันเพื่อให้ uploader เจอ credential นั้น:
+ใน preset ปัจจุบัน `profile.json` ระบุ OAuth account label เป็น `waritnan34811` จึงต้องใช้ label เดียวกันเพื่อให้ uploader เจอ credential นั้น:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe auth token --client-secrets ".\client_secrets.json" --account lamaixcom3481
+.\.venv\Scripts\kt404-youtube.exe auth token --client-secrets ".\client_secrets.json" --account waritnan34811
 ```
 
-ครั้งแรกโปรแกรมจะเปิด Google OAuth ใน browser ให้เจ้าของเลือกบัญชีและยินยอม scope ที่แสดง หลังสำเร็จจะสร้าง `token_lamaixcom3481.json` ใน root ของโปรเจกต์ คำสั่งนี้ไม่เรียก YouTube API และไม่อัปโหลดวิดีโอ ถ้าบัญชีนี้มี credential ที่ยังใช้ได้ โปรแกรมจะนำกลับมาใช้โดยไม่เปิด browser ซ้ำ
+ครั้งแรกโปรแกรมจะเปิด Google OAuth ใน browser ให้เจ้าของเลือกบัญชีและยินยอม scope ที่แสดง หลังสำเร็จจะสร้าง `token_waritnan34811.json` ใน root ของโปรเจกต์ คำสั่งนี้ไม่เรียก YouTube API และไม่อัปโหลดวิดีโอ ถ้าบัญชีนี้มี credential ที่ยังใช้ได้ โปรแกรมจะนำกลับมาใช้โดยไม่เปิด browser ซ้ำ
 
 ดูเฉพาะชื่อบัญชีที่มี credential โดยไม่แสดง token ได้ด้วย:
 
@@ -107,31 +107,28 @@ OAuth JSON และ token เป็นข้อมูลเฉพาะเค�
 .\.venv\Scripts\kt404-youtube.exe profile show
 ```
 
-โปรไฟล์ที่อยู่ใน repo มี preset ของช่อง `waritna34811` พร้อม description, tags, category `22` และ Made for Kids = `no` ตามที่เจ้าของระบุ ค่า privacy, synthetic media, Official Artist Channel และการรับรองสิทธิ์ assets ต้องยืนยันตามข้อเท็จจริงก่อนใช้อัปโหลด; ห้ามเดาหรือรับรองแทนเจ้าของ
+โปรไฟล์ที่อยู่ใน repo มี preset ของช่อง `waritnan34811` พร้อม description, tags, category `22` และ Made for Kids = `no` ตามที่เจ้าของระบุ ค่า privacy, synthetic media และ Official Artist Channel ต้องยืนยันตามข้อเท็จจริงก่อนใช้อัปโหลด; ห้ามเดาหรือรับรองแทนเจ้าของ
 
 ถ้าต้องกรอก/ยืนยันข้อมูลเหล่านี้ผ่าน CLI ให้รันคำสั่งตั้งค่าใหม่ คำสั่งนี้เรียก YouTube API เพื่อแสดงช่องที่บัญชี OAuth จัดการได้ แต่ไม่อัปโหลดคลิป และจะสำรอง `profile.json` เดิมก่อนแทนที่:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe profile setup --client-secrets ".\client_secrets.json" --oauth-account lamaixcom3481 --replace-existing
+.\.venv\Scripts\kt404-youtube.exe profile setup --client-secrets ".\client_secrets.json" --oauth-account waritnan34811 --replace-existing
 ```
 
-เลือกช่องที่ถูกต้อง แล้วกรอก metadata และ declarations ตามความจริง หากยังไม่พร้อมยืนยันสิทธิ์ audio, ภาพ, game footage หรือ overlay ให้ตอบว่ายังไม่ยืนยันและอย่าอัปโหลด ค่า Unlisted/Public ต้องอาศัยสถานะ YouTube API audit ที่ผ่านจริง; อย่าตั้งสถานะ audit จากการผ่าน OAuth เพียงอย่างเดียว
+เลือกช่องที่ถูกต้อง แล้วกรอก metadata และ declarations ตามความจริง ค่า Unlisted/Public ต้องอาศัยสถานะ YouTube API audit ที่ผ่านจริง; อย่าตั้งสถานะ audit จากการผ่าน OAuth เพียงอย่างเดียว
 
-ตรวจค่าที่บันทึกไว้อีกครั้งด้วย `profile show`. สำหรับการแก้เฉพาะค่า privacy หรือสิทธิ์ assets มีคำสั่ง:
+ตรวจค่าที่บันทึกไว้อีกครั้งด้วย `profile show`. สำหรับการแก้เฉพาะค่า privacy มีคำสั่ง:
 
 ```powershell
 .\.venv\Scripts\kt404-youtube.exe profile set-privacy private
-.\.venv\Scripts\kt404-youtube.exe profile set-asset-rights-status confirmed
 ```
-
-ใช้คำสั่งยืนยันสิทธิ์เฉพาะเมื่อมีสิทธิ์ครบจริงเท่านั้น
 
 ## 6. ตรวจคลิปก่อนสั่งอัปโหลด
 
 ติดตั้ง/เชื่อม Google Drive หรือคัดลอกคลิปกับ JPG ไว้ในโฟลเดอร์ที่ต้องการ ตรวจชื่อและไฟล์คู่ตามรูปแบบที่โปรแกรมรองรับ ดูรายละเอียดใน [คู่มือปฏิบัติงาน](operations.md). จากนั้นแทน `<โฟลเดอร์คลิป>` ด้วย path จริง:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe dry-run --folder "<โฟลเดอร์คลิป>" --channel "waritna34811"
+.\.venv\Scripts\kt404-youtube.exe dry-run --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
 ```
 
 `dry-run` เป็นการตรวจไฟล์แบบ offline และอ่านเฉพาะไฟล์ระดับบนสุดของโฟลเดอร์ที่ระบุ ตรวจจำนวนคลิป ชื่อไฟล์ วิดีโอ/ภาพปกคู่กัน และรายการที่ต้องแก้ให้เรียบร้อยก่อนส่งคำสั่ง `upload`
