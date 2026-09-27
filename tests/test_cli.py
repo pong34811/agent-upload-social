@@ -113,6 +113,7 @@ def test_upload_command_prints_channel_count_and_visibility_before_upload(cli, c
     assert "วิดีโอ: 2" in output
     assert "ข้าม: 1" in output
     assert "ความเป็นส่วนตัว: private" in output
+    assert "สิทธิ์ assets: ยืนยัน" in output
     assert cli.runner.upload.call_count == 1
 
 
@@ -356,7 +357,7 @@ def test_revoke_authorization_rejects_channel_mismatch_before_revoking(cli, cand
 
 def test_profile_setup_collects_owner_declarations_without_policy_prompt(cli, monkeypatch):
     answers = iter([
-        "1", "", "", "20", "private", "gaming, thailand", "no", "no", "no",
+        "1", "", "", "20", "private", "gaming, thailand", "no", "no", "no", "yes",
     ])
     monkeypatch.setattr("builtins.input", lambda _: next(answers))
 
@@ -366,6 +367,7 @@ def test_profile_setup_collects_owner_declarations_without_policy_prompt(cli, mo
 
     assert result == 0
     created = cli.profile_store.save.call_args.args[0]
+    assert created.asset_rights_confirmed is True
     assert created.tags == ("gaming", "thailand")
 
 
@@ -409,6 +411,8 @@ def test_profile_privacy_and_audit_commands_update_only_declared_values(cli):
     assert cli.profile.privacy_status == "public"
     assert cli.app.run(["profile", "set-api-audit-status", "passed"]) == 0
     assert cli.profile.api_audit_passed is True
+    assert cli.app.run(["profile", "set-asset-rights-status", "not-confirmed"]) == 0
+    assert cli.profile.asset_rights_confirmed is False
 
 
 def test_profile_delete_account_data_explains_remote_videos_remain(cli, candidate, metadata, capsys):

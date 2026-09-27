@@ -66,4 +66,4 @@ ffprobe -version
 - OAuth Desktop JSON: `client_secrets.json` ที่โฟลเดอร์โปรเจกต์; `.gitignore` กันไฟล์ credentials และฐานข้อมูลไม่ให้เข้า Git
 - วิดีโอต้นฉบับ/ภาพ JPG ยังคงอยู่ในโฟลเดอร์ที่เจ้าของเลือก
 
-ใช้ Google YouTube Data API v3; ผู้ใช้เป็นผู้เลือก visibility และยืนยัน audience, synthetic media และ metadata ของแต่ละโปรไฟล์
+ใช้ Google YouTube Data API v3; ผู้ใช้เป็นผู้เลือก visibility และยืนยันสิทธิ์ของ audio/visual/game footage/overlay, audience, synthetic media และ metadata ของแต่ละโปรไฟล์

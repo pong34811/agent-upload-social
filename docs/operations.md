@@ -14,7 +14,7 @@ kt404-youtube profile setup
 kt404-youtube profile show
 ```
 
-`auth token --client-secrets <พาธ Desktop OAuth JSON>` สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API ส่วน `profile setup` ใช้ OAuth อ่านรายชื่อช่อง แล้วให้เจ้าของเลือกช่องและยืนยันคำอธิบาย/Tags, category, privacy, Made for Kids, synthetic media และ Official Artist Channel
+`auth token --client-secrets <พาธ Desktop OAuth JSON>` สร้างหรือตรวจ OAuth credential โดยไม่เรียก YouTube API ส่วน `profile setup` ใช้ OAuth อ่านรายชื่อช่อง แล้วให้เจ้าของเลือกช่องและยืนยันคำอธิบาย/Tags, category, privacy, Made for Kids, synthetic media, Official Artist Channel และสิทธิ์ audio/visual/game footage/overlay
 
 ทั้งสองคำสั่งไม่อัปโหลดวิดีโอ
 
@@ -70,9 +70,10 @@ kt404-youtube upload --folder "G:\My Drive\Projects\Katy404\2026-09\vdo" --chann
 ```powershell
 kt404-youtube profile set-privacy private
 kt404-youtube profile set-api-audit-status passed
+kt404-youtube profile set-asset-rights-status confirmed
 ```
 
-ใช้ `set-api-audit-status passed` หลังจากแยกตรวจ YouTube API audit เรียบร้อยแล้วเท่านั้น Public และ Unlisted จะถูกปิดจนกว่าจะผ่าน audit
+ใช้ `set-api-audit-status passed` หลังจากแยกตรวจ YouTube API audit เรียบร้อยแล้วเท่านั้น Public และ Unlisted จะถูกปิดจนกว่าจะผ่าน audit ใช้ `set-asset-rights-status confirmed` เฉพาะเมื่อเจ้าของตรวจสิทธิ์ assets สำหรับ batch ที่จะส่งแล้ว; เป็นการยืนยันของเจ้าของ ไม่ใช่การตรวจลิขสิทธิ์อัตโนมัติ
 
 ## ลบข้อมูล API หรือยกเลิก OAuth
 

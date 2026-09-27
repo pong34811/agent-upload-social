@@ -111,6 +111,8 @@ def _build_parser() -> argparse.ArgumentParser:
     privacy.add_argument("status", choices=("private", "unlisted", "public"))
     audit = profile_commands.add_parser("set-api-audit-status", help="บันทึกผล YouTube API audit")
     audit.add_argument("status", choices=("passed", "not-passed"))
+    rights = profile_commands.add_parser("set-asset-rights-status", help="แก้ไขการรับรองสิทธิ์ assets")
+    rights.add_argument("status", choices=("confirmed", "not-confirmed"))
     pilot = profile_commands.add_parser("approve-pilot", help="อนุมัติคลิปนำร่องหลังตรวจใน Studio")
     pilot.add_argument("--video-id", required=True)
     delete_data = profile_commands.add_parser("delete-account-data", help="ลบข้อมูล API ของช่องในเครื่อง")
@@ -217,6 +219,11 @@ class CliApp:
             updated = replace(profile, api_audit_passed=(args.status == "passed"))
             self._save_profile(updated)
             print(f"บันทึกสถานะ YouTube API audit: {args.status}")
+            return 0
+        if action == "set-asset-rights-status":
+            updated = replace(profile, asset_rights_confirmed=(args.status == "confirmed"))
+            self._save_profile(updated)
+            print(f"บันทึกสถานะการรับรองสิทธิ์ assets: {args.status}")
             return 0
         if action == "approve-pilot":
             return self._approve_pilot(profile, args.video_id)
@@ -327,6 +334,7 @@ class CliApp:
         made_for_kids = self._prompt_bool("เนื้อหานี้ทำเพื่อเด็กโดยเจตนาหรือไม่ (yes/no)")
         synthetic = self._prompt_bool("มีเนื้อหาสังเคราะห์/ดัดแปลงที่ต้องเปิดเผยหรือไม่ (yes/no)")
         official_artist = self._prompt_bool("ช่องนี้เป็น Official Artist Channel หรือไม่ (yes/no)")
+        rights_confirmed = self._prompt_bool("คุณมีสิทธิ์ใช้เสียง ภาพ เกม และ overlay ในไฟล์ชุดนี้หรือไม่ (yes/no)")
 
         profile = UploadProfile(
             channel_alias=selected_channel.display_name,
@@ -340,11 +348,15 @@ class CliApp:
             made_for_kids=made_for_kids,
             contains_synthetic_media=synthetic,
             is_official_artist_channel=official_artist,
+            asset_rights_confirmed=rights_confirmed,
             shorts_title_suffix=shorts_suffix,
         )
         self.profile_store.save(profile)
         self.runner.profile = profile
-        print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; พร้อมตรวจคลิปด้วย dry-run")
+        if rights_confirmed:
+            print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; พร้อมตรวจคลิปด้วย dry-run")
+        else:
+            print(f"ตั้งค่าโปรไฟล์สำหรับ {selected_channel.display_name} แล้ว; ต้องยืนยันสิทธิ์ assets ก่อนอัปโหลด")
         print("ยังไม่มีการอัปโหลดวิดีโอ; ต้องสั่ง upload แยกหลังตรวจ dry-run")
         return 0
 
@@ -476,6 +488,7 @@ class CliApp:
             print(f"ความเป็นส่วนตัว: {privacy_status}")
             print(f"โปรไฟล์ revision: {self._profile_revision()}")
             print("คำประกาศของเจ้าของสำหรับ batch นี้:")
+            print(f"สิทธิ์ assets: {'ยืนยัน' if current_profile.asset_rights_confirmed else 'ยังไม่ยืนยัน'}")
             print(f"Made for Kids: {'ใช่' if current_profile.made_for_kids else 'ไม่ใช่'}")
             print(f"Synthetic media: {'ใช่' if current_profile.contains_synthetic_media else 'ไม่ใช่'}")
             print(f"Official Artist Channel: {'ใช่' if current_profile.is_official_artist_channel else 'ไม่ใช่'}")
@@ -719,6 +732,7 @@ class CliApp:
         print(f"ความเป็นส่วนตัวเริ่มต้น: {profile.privacy_status}")
         print(f"YouTube API audit: {'ผ่าน' if profile.api_audit_passed else 'ยังไม่ผ่าน'}")
         print(f"OAuth client path: {profile.client_secrets_path or 'ยังไม่ได้ตั้งค่า'}")
+        print(f"สิทธิ์ assets: {'ยืนยัน' if profile.asset_rights_confirmed else 'ยังไม่ยืนยัน'}")
         print("ไม่แสดง OAuth token หรือ client secret")
 
     def _profile_revision(self) -> str:

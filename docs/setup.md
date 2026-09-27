@@ -115,7 +115,7 @@ OAuth JSON และ token เป็นข้อมูลเฉพาะเค�
 .\.venv\Scripts\kt404-youtube.exe profile setup --client-secrets ".\client_secrets.json" --oauth-account waritnan34811 --replace-existing
 ```
 
-เลือกช่องที่ถูกต้อง แล้วกรอก metadata และ declarations ตามความจริง ค่า Unlisted/Public ต้องอาศัยสถานะ YouTube API audit ที่ผ่านจริง; อย่าตั้งสถานะ audit จากการผ่าน OAuth เพียงอย่างเดียว
+เลือกช่องที่ถูกต้อง แล้วกรอก metadata และ declarations ตามความจริง รวมถึงยืนยันสิทธิ์ใช้ audio/visual/game footage/overlay สำหรับ batch ที่จะส่ง ค่า Unlisted/Public ต้องอาศัยสถานะ YouTube API audit ที่ผ่านจริง; อย่าตั้งสถานะ audit จากการผ่าน OAuth เพียงอย่างเดียว
 
 ตรวจค่าที่บันทึกไว้อีกครั้งด้วย `profile show`. สำหรับการแก้เฉพาะค่า privacy มีคำสั่ง:
 
