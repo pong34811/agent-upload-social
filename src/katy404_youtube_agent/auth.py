@@ -391,6 +391,7 @@ def authorize_desktop(
     if on_authorization_started is not None:
         on_authorization_started()
     credentials = flow.run_local_server(
+        host="127.0.0.1",
         port=0,
         access_type="offline",
         prompt="consent" if account_key == OWNER_ACCOUNT_KEY else "select_account consent",

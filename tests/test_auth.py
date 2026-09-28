@@ -98,12 +98,40 @@ def test_authorize_uses_desktop_flow_and_saves_owner_credential(tmp_path, fake_k
 
     assert credentials.refresh_token == "refresh-value"
     flow.run_local_server.assert_called_once_with(
+        host="127.0.0.1",
         port=0,
         access_type="offline",
         prompt="consent",
         timeout_seconds=600,
     )
     assert store.load("owner").refresh_token == "refresh-value"
+
+
+def test_authorize_named_account_uses_ipv4_loopback_callback(tmp_path, fake_keyring, monkeypatch):
+    secrets_path = tmp_path / "client_secrets.json"
+    secrets_path.write_text(
+        '{"installed":{"client_id":"client-id","client_secret":"client-secret"}}',
+        encoding="utf-8",
+    )
+    flow = Mock()
+    flow.run_local_server.return_value = fake_credentials()
+    flow_factory = Mock(return_value=flow)
+    monkeypatch.setattr(
+        "katy404_youtube_agent.auth.InstalledAppFlow.from_client_secrets_file",
+        flow_factory,
+    )
+    store = CredentialStore(fake_keyring)
+
+    authorize_desktop(secrets_path, store, account_key="armigon")
+
+    flow.run_local_server.assert_called_once_with(
+        host="127.0.0.1",
+        port=0,
+        access_type="offline",
+        prompt="select_account consent",
+        timeout_seconds=600,
+    )
+    assert store.load("armigon").refresh_token == "refresh-value"
 
 
 def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_path, fake_keyring, monkeypatch):
@@ -137,6 +165,7 @@ def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_
 
     assert events == ["flow", "page", "google", "stored"]
     flow.run_local_server.assert_called_once_with(
+        host="127.0.0.1",
         port=0,
         access_type="offline",
         prompt="consent",
