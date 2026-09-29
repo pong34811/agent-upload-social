@@ -37,6 +37,7 @@ if not defined ACCOUNT (
 echo.
 echo Preparing OAuth for credential label "%ACCOUNT%".
 echo This command does not call YouTube API or upload videos.
+echo This command only creates OAuth credentials; it does not call YouTube API or upload videos.
 echo.
 
 "%APP%" auth token --client-secrets "%CLIENT%" --account "%ACCOUNT%"

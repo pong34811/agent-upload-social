@@ -13,6 +13,7 @@ token_*.json
 *.db
 *.log
 profile.json.backup-*
+profiles/*.json.backup-*
 
 # Python
 .venv/

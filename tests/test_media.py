@@ -17,9 +17,27 @@ from katy404_youtube_agent.models import MediaFacts
 def test_metadata_strips_internal_prefix_and_preserves_thai_and_short_suffix(candidate, valid_profile):
     metadata = build_metadata(candidate, MediaFacts(duration_seconds=90, width=1080, height=1920), valid_profile)
 
-    assert metadata.title == "เกมไทย #Shorts"
+    assert metadata.title == "เกมไทย #Shorts #Katy404 #vtuberth #วันว่างๆ"
     assert metadata.privacy_status == "private"
     assert metadata.short_candidate is True
+
+
+def test_armigon_vertical_short_title_removes_short_marker_and_uses_requested_hashtags(
+    candidate, valid_profile
+):
+    candidate = dataclasses.replace(
+        candidate,
+        path=Path("01-01 Peak - เกม - ช่วยโฮชิให้รอดจากเขา-short.mov"),
+    )
+    profile = dataclasses.replace(
+        valid_profile,
+        channel_alias="Armigon",
+        shorts_title_suffix=" #shorts",
+    )
+
+    metadata = build_metadata(candidate, MediaFacts(duration_seconds=90, width=1080, height=1920), profile)
+
+    assert metadata.title == "01-01 Peak - เกม - ช่วยโฮชิให้รอดจากเขา #shorts #Armigon #vtuberth #วันว่างๆ"
 
 
 def test_official_artist_channel_profile_does_not_add_standard_shorts_suffix(candidate, valid_profile):

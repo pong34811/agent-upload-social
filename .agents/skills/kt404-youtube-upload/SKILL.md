@@ -7,12 +7,12 @@ description: Upload or schedule videos to YouTube with the local Katy404 uploade
 
 Uploader version: 0.1.0 (defined in `src/katy404_youtube_agent/__init__.py` and `pyproject.toml`).
 
-Use this skill only for an explicit request to upload or schedule videos through `D:\agent-upload-social`. Folder discussion, inventory requests, and planning are not upload authorization.
+Use this skill only for an explicit request to upload or schedule videos through this repository. Folder discussion, inventory requests, and planning are not upload authorization.
 
 ## Workflow
 
 1. Use the exact folder and YouTube channel supplied by the user. Use session context if they already supplied them; do not ask for them again. Never search a parent folder, neighboring folder, or drive.
-2. Use the saved channel profile and OAuth account in `profile.json`. Do not run `profile setup` or repeat prompts when the saved profile is ready.
+2. Run `profile list` to find saved profiles (`profiles/<name>.json`). When more than one exists, pass `--profile <name>` on every command that uses a channel. A single named profile is selected automatically. If only the legacy `profile.json` exists, it remains supported. Do not run `profile setup` or repeat prompts when the saved profile is ready.
 3. Run `upload` directly. It performs the preflight itself. Run `dry-run` only when the user asks for a preview or inspection before sending.
 4. For scheduled batches, pass the user's requested RFC 3339 time, including its UTC offset, with `--schedule-from`. The uploader pairs filename-sorted landscape and portrait clips one of each per day. Do not change the start time or invent a schedule.
 5. Scheduled uploads request the necessary OAuth consent from Google automatically if the saved credential lacks the metadata-edit scope. Complete that flow only for the explicit upload request.
@@ -21,16 +21,17 @@ Use this skill only for an explicit request to upload or schedule videos through
 
 ## Command templates
 
-Run these from the project root:
+Run these from the project root. Replace `<profile-name>` with the selected profile name when multiple profiles exist or when you want to choose a specific channel. The option follows the command name, as shown:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --folder "<user-provided-folder>" --channel "<user-provided-channel>"
+.\.venv\Scripts\kt404-youtube.exe profile list
+.\.venv\Scripts\kt404-youtube.exe upload --profile "<profile-name>" --folder "<user-provided-folder>" --channel "<user-provided-channel>"
 ```
 
 For a scheduled landscape/portrait batch:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --folder "<user-provided-folder>" --channel "<user-provided-channel>" --schedule-from "<user-provided-RFC3339-time>"
+.\.venv\Scripts\kt404-youtube.exe upload --profile "<profile-name>" --folder "<user-provided-folder>" --channel "<user-provided-channel>" --schedule-from "<user-provided-RFC3339-time>"
 ```
 
 ## Handling failures

@@ -16,6 +16,7 @@ from .models import (
     BatchReport,
     MediaCandidate,
     MediaFacts,
+    ScanIssue,
     ThumbnailResult,
     UploadItemResult,
     UploadJob,
@@ -38,6 +39,9 @@ from .youtube import (
     VideoSchedulingError,
 )
 
+_SHORTS_PROCESSING_POLL_INTERVAL_SECONDS = 10
+_SHORTS_PROCESSING_MAX_POLLS = 60
+
 
 class BatchRunner:
     """Run local preflight and batch uploads only for an explicitly selected folder."""
@@ -59,11 +63,18 @@ class BatchRunner:
         self.probe = probe
         self.sleep = sleep
 
-    def dry_run(self, folder: Path, requested_channel: str) -> BatchReport:
+    def dry_run(
+        self,
+        folder: Path,
+        requested_channel: str,
+        *,
+        file_name: str | None = None,
+    ) -> BatchReport:
         """Inspect a folder locally without resolving OAuth or making API calls."""
         if not requested_channel or not requested_channel.strip():
             raise ChannelResolutionError("A channel ID, handle, or name is required")
         candidates, issues = scan_folder(Path(folder))
+        candidates, issues = self._select_file(folder, candidates, issues, file_name)
         items = [
             UploadItemResult(status="failed", source_path=issue.path, error_code=issue.code)
             for issue in issues
@@ -126,6 +137,7 @@ class BatchRunner:
         *,
         limit: int | None = None,
         force_private: bool = False,
+        file_name: str | None = None,
         on_preflight: Callable[[Any, int, int, str, UploadProfile], None] | None = None,
         schedule_from: datetime | None = None,
         on_schedule_plan: Callable[[dict[Path, datetime]], None] | None = None,
@@ -148,6 +160,7 @@ class BatchRunner:
         )
         channel = self._resolve_owned_channel(requested_channel)
         candidates, issues = scan_folder(Path(folder))
+        candidates, issues = self._select_file(folder, candidates, issues, file_name)
         report_items = [
             UploadItemResult(status="failed", source_path=issue.path, error_code=issue.code)
             for issue in issues
@@ -195,6 +208,21 @@ class BatchRunner:
                 scheduled_at = schedule_plan[candidate.path]
                 metadata = replace(metadata, publish_at=format_publish_at(scheduled_at))
             job = self.store.get_or_create_job(candidate, channel.channel_id, metadata)
+            if schedule_plan is None and job.state in {"discovered", "validated"} and (
+                job.metadata.title != metadata.title
+                or job.metadata.description != metadata.description
+            ):
+                # Refresh derived display text for queued jobs before creating a
+                # YouTube upload session (for example, remove the `_9x16` marker).
+                self.store.update_preupload_metadata(
+                    job.id,
+                    replace(
+                        job.metadata,
+                        title=metadata.title,
+                        description=metadata.description,
+                    ),
+                )
+                job = self.store.get_job(job.id)
             if schedule_plan is not None:
                 changed = self._changed_file_status(job)
                 if changed is not None:
@@ -252,6 +280,37 @@ class BatchRunner:
         upload_report = self.upload_prepared(jobs, scheduled_times=scheduled_times if schedule_plan is not None else None)
         report_items.extend(upload_report.items)
         return self._report(report_items, stopped_reason=upload_report.stopped_reason)
+
+    @staticmethod
+    def _select_file(
+        folder: Path,
+        candidates: list[MediaCandidate],
+        issues: list[ScanIssue],
+        file_name: str | None,
+    ) -> tuple[list[MediaCandidate], list[ScanIssue]]:
+        if file_name is None:
+            return candidates, issues
+        selected_name = Path(file_name).name
+        if not file_name or selected_name != file_name or file_name in {".", ".."}:
+            raise ValueError("--file must be a filename in the selected folder, not a path")
+
+        selected_key = selected_name.casefold()
+        selected_stem = Path(selected_name).stem.casefold()
+        matching_candidates = [item for item in candidates if item.path.name.casefold() == selected_key]
+        matching_issues = [
+            item
+            for item in issues
+            if item.path.name.casefold() == selected_key or item.path.stem.casefold() == selected_stem
+        ]
+        if not matching_candidates and not matching_issues:
+            matching_issues = [
+                ScanIssue(
+                    path=Path(folder) / selected_name,
+                    code="file_not_found",
+                    message="The selected filename was not found in the selected folder",
+                )
+            ]
+        return matching_candidates, matching_issues
 
     def upload_prepared(
         self,
@@ -604,19 +663,40 @@ class BatchRunner:
             )
 
         try:
-            response = self.api.set_thumbnail(result.video_id, job.thumbnail_path)
-            if isinstance(response, ThumbnailResult) and not response.success:
-                self.store.mark_thumbnail_result(job.id, success=False)
-                return (
-                    self._uploaded_item(
-                        job,
-                        result=result,
-                        status="uploaded_thumbnail_failed",
-                        thumbnail_status="failed",
-                        error_code="thumbnail_rejected",
-                    ),
-                    False,
-                )
+            self._send_thumbnail(result.video_id, job.thumbnail_path)
+            if self._is_vertical_short(job):
+                print(f"YouTube กำลังประมวลผลคลิปสั้นแนวตั้ง: {job.path.name}")
+                processing_status = self._wait_for_video_processing(result.video_id)
+                if processing_status == "timeout":
+                    return (
+                        self._uploaded_item(
+                            job,
+                            result=result,
+                            status="uploaded_thumbnail_pending",
+                            thumbnail_status="pending",
+                            error_code="processing_timeout",
+                        ),
+                        False,
+                    )
+                if processing_status in {"failed", "terminated"}:
+                    raise ThumbnailError(
+                        "YouTube did not finish processing the uploaded Short",
+                        retryable=processing_status == "failed",
+                        error_code=f"processing_{processing_status}",
+                    )
+
+                try:
+                    current_hash = self._file_hash(job.thumbnail_path)
+                except OSError:
+                    current_hash = None
+                if current_hash != job.thumbnail_sha256:
+                    raise ThumbnailError(
+                        "The selected thumbnail changed while YouTube processed the Short",
+                        retryable=False,
+                        error_code="changed_thumbnail",
+                    )
+                print(f"YouTube ประมวลผลเสร็จแล้ว กำลังส่งปกคลิปซ้ำ: {job.path.name}")
+                self._send_thumbnail(result.video_id, job.thumbnail_path)
         except AuthorizationRevokedError:
             raise
         except QuotaExceeded as exc:
@@ -661,6 +741,37 @@ class BatchRunner:
             self._uploaded_item(job, result=result, status="uploaded", thumbnail_status="success"),
             False,
         )
+
+    def _send_thumbnail(self, video_id: str, thumbnail_path: Path) -> None:
+        response = self.api.set_thumbnail(video_id, thumbnail_path)
+        if isinstance(response, ThumbnailResult) and not response.success:
+            raise ThumbnailError(
+                "YouTube rejected the custom thumbnail",
+                retryable=True,
+                error_code="thumbnail_rejected",
+            )
+
+    def _wait_for_video_processing(self, video_id: str) -> str:
+        get_status = getattr(self.api, "get_processing_status", None)
+        if not callable(get_status):
+            # Preserve support for alternate API adapters while still applying the second set.
+            return "succeeded"
+        for poll in range(_SHORTS_PROCESSING_MAX_POLLS):
+            try:
+                status = get_status(video_id)
+            except ThumbnailError as exc:
+                if not exc.retryable:
+                    raise
+                status = None
+            if status in {"succeeded", "failed", "terminated"}:
+                return status
+            if poll + 1 < _SHORTS_PROCESSING_MAX_POLLS:
+                self.sleep(_SHORTS_PROCESSING_POLL_INTERVAL_SECONDS)
+        return "timeout"
+
+    @staticmethod
+    def _is_vertical_short(job: UploadJob) -> bool:
+        return job.metadata.short_candidate and job.path.stem.casefold().endswith("_9x16")
 
     def _changed_file_status(self, job: UploadJob) -> str | None:
         try:
@@ -746,7 +857,10 @@ class BatchRunner:
             uploaded_count=sum(item.status.startswith("uploaded") for item in items),
             skipped_count=sum(item.status.startswith("skipped") for item in items),
             failed_count=sum(item.status == "failed" for item in items),
-            pending_count=sum(item.status.startswith("pending") for item in items),
+            pending_count=sum(
+                item.status.startswith("pending") or item.status == "uploaded_thumbnail_pending"
+                for item in items
+            ),
             stopped_reason=stopped_reason,
             scheduled_count=sum(item.scheduled_publish_at is not None for item in items),
         )

@@ -4,7 +4,7 @@
 
 ## อะไรอยู่ใน Git และอะไรต้องเตรียมเอง
 
-เมื่อ clone repo จะได้ source code, คู่มือ และ preset ช่องใน `profile.json` รวมถึงการตั้งค่าที่เจ้าของบันทึกไว้ เช่น description, tags, category และ `made_for_kids: false` ไฟล์ต่อไปนี้ถูกกันออกจาก Git และจะไม่มากับ clone:
+โปรไฟล์แต่ละช่องเก็บใน `profiles/<ชื่อ>.json`; การติดตั้งรุ่นเดิมที่ยังไม่มีโฟลเดอร์นี้ใช้ `profile.json` ได้. โปรไฟล์เก็บ metadata เช่น description, tags, category และ `made_for_kids: false`; OAuth credentials แยกเก็บตาม account และไม่อยู่ในไฟล์โปรไฟล์. ไฟล์ต่อไปนี้ถูกกันออกจาก Git และจะไม่มากับ clone:
 
 - `client_secrets.json`: OAuth Desktop JSON ที่เจ้าของดาวน์โหลดจาก Google Cloud
 - `token_<account>.json`: OAuth credential ของแต่ละบัญชี Google
@@ -13,7 +13,7 @@
 
 ดังนั้น clone มี source และ preset แต่ยังไม่มี credentials หรือประวัติการอัปโหลด ต้องสร้าง virtual environment ใหม่ วาง OAuth JSON ลงในโฟลเดอร์โปรเจกต์ และทำ OAuth บนเครื่องนั้นเอง อย่าส่ง credentials หรือ token ขึ้น Git
 
-`profile.json` ที่ commit ไว้ใช้ path `client_secrets.json` แบบ relative กับ root ของโปรเจกต์ รันคำสั่งจาก root ตามตัวอย่างด้านล่างเพื่อให้ path นี้ชี้ไปยังไฟล์ใน clone ปัจจุบัน
+โปรไฟล์ใช้ path `client_secrets.json` แบบ relative กับ root ของโปรเจกต์ รันคำสั่งจาก root ตามตัวอย่างด้านล่างเพื่อให้ path นี้ชี้ไปยังไฟล์ใน clone ปัจจุบัน
 
 ## 1. Clone repo
 
@@ -81,36 +81,46 @@ C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 
 คำสั่ง `auth token` ใช้เฉพาะเมื่อต้องการเชื่อมบัญชีก่อนเริ่มอัปโหลด
 
-## 5. ใช้ preset ช่อง
+## 5. เลือกหรือตั้งโปรไฟล์ช่อง
 
-แสดง preset ปัจจุบันโดยไม่แสดง OAuth token:
+แสดงรายการโปรไฟล์และค่าโปรไฟล์โดยไม่แสดง OAuth token:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe profile show
+.\.venv\Scripts\kt404-youtube.exe profile list
+.\.venv\Scripts\kt404-youtube.exe profile show --profile armigon
 ```
 
-โปรเจกต์มี preset ของช่อง `waritnan34811` อยู่แล้ว จึงไม่ต้องรัน `profile setup` ซ้ำเพื่ออัปโหลดช่องนี้. หากตั้งค่าให้ช่องอื่น ให้ใช้ `profile setup` เฉพาะครั้งนั้นและกรอก metadata ตามข้อเท็จจริง
+เมื่อมีหลายโปรไฟล์ ให้ระบุ `--profile <ชื่อ>` ในแต่ละคำสั่งที่ใช้งานช่อง. ถ้ามีไฟล์แยกเพียงไฟล์เดียว โปรแกรมเลือกให้อัตโนมัติได้; ถ้า `profile.json` เป็นอีกช่องหนึ่ง โปรแกรมจะแสดงช่องนั้นใน `profile list` ด้วยชื่อ OAuth account
+
+ถ้ามีเฉพาะไฟล์ legacy `profile.json` ให้ใช้ `profile show` โดยไม่ต้องส่ง `--profile`.
 
 หากต้องตั้งโปรไฟล์สำหรับช่องอื่น คำสั่งนี้จะแสดงช่องที่บัญชี OAuth จัดการได้และบันทึกค่าประจำช่อง:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe profile setup --client-secrets ".\client_secrets.json" --oauth-account waritnan34811 --replace-existing
+.\.venv\Scripts\kt404-youtube.exe profile setup --profile new-channel --client-secrets ".\client_secrets.json" --oauth-account new-account
 ```
 
-เลือกช่องที่ถูกต้อง แล้วกรอก metadata และค่าที่ YouTube ต้องใช้ตามข้อเท็จจริง. ไม่ต้องกรอกสถานะ audit ก่อนอัปโหลด; ค่า `api_audit_passed` เดิมไม่มีผลต่อการส่งคำขอ. Google อาจจำกัด project ที่ยังไม่ผ่านการตรวจสอบให้วิดีโอเป็น Private; โปรแกรมใช้ผลจริงจาก API และอ่านตาราง `private` + `publishAt` กลับก่อนรายงานสำเร็จ
+เลือกช่องที่ตรงกับชื่อโปรไฟล์ แล้วกรอก metadata และค่าที่ YouTube ต้องใช้ตามข้อเท็จจริง. หากโปรไฟล์ชื่อนั้นมีอยู่แล้ว ให้เพิ่ม `--replace-existing` เพื่อเก็บสำเนาก่อนแทนค่า. ไม่ต้องกรอกสถานะ audit ก่อนอัปโหลด; ค่า `api_audit_passed` เดิมไม่มีผลต่อการส่งคำขอ. Google อาจจำกัด project ที่ยังไม่ผ่านการตรวจสอบให้วิดีโอเป็น Private; โปรแกรมใช้ผลจริงจาก API และอ่านตาราง `private` + `publishAt` กลับก่อนรายงานสำเร็จ
 
 ## 6. อัปโหลด
 
 ระบุโฟลเดอร์และช่องในคำสั่งเดียว; uploader ตรวจไฟล์ก่อนส่งให้อยู่แล้ว:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
+.\.venv\Scripts\kt404-youtube.exe upload --profile armigon --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
 ```
 
-ถ้าต้องการดูผลก่อนส่ง ใช้ `dry-run` เพิ่มเติมได้ แต่ไม่จำเป็น:
+ถ้าต้องการดูผลก่อนส่ง ใช้ `dry-run` เพิ่มเติมได้ แต่ไม่จำเป็น. รูปแบบชื่อไฟล์วิดีโอและภาพปกที่รองรับ:
+
+```text
+vdo_ชื่อคลิป.mov          vdo_ชื่อคลิป.jpg
+vdo_ชื่อคลิป_9x16.mov     vdo_ชื่อคลิป_9x16.jpg
+```
+
+รองรับวิดีโอ `.mp4`/`.mov` และภาพ `.jpg`, `.jpeg` หรือ `.png`; ชื่อ `_9x16` ใช้กับคู่ไฟล์แนวตั้ง ส่วนไฟล์แนวนอนใช้ชื่อฐานโดยไม่มี suffix นี้. `dry-run` อ่านเฉพาะไฟล์ระดับบนสุดในโฟลเดอร์ที่ระบุ ไม่ค้นหาโฟลเดอร์ย่อย:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe dry-run --folder "<โฟลเดอร์คลิป>" --channel "waritnan34811"
+.\.venv\Scripts\kt404-youtube.exe dry-run --profile armigon --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
 ```
 
 ทั้ง `upload` และ `dry-run` อ่านเฉพาะไฟล์ระดับบนสุดของโฟลเดอร์ที่ระบุ
@@ -119,7 +129,7 @@ C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 
 ## ที่เก็บข้อมูลในเครื่อง
 
-- `profile.json`: preset และค่าประจำช่องที่อยู่ใน Git
+- `profiles/<ชื่อ>.json`: preset และค่าประจำช่อง; `profile.json` เป็น fallback สำหรับการติดตั้งรุ่นเดิม
 - `client_secrets.json`: OAuth Desktop JSON เฉพาะเครื่อง; ถูก ignore
 - `token_<account>.json`: OAuth credential เฉพาะเครื่อง; ถูก ignore
 - `state.sqlite3`: job state เฉพาะเครื่อง; ถูก ignore และจะถูกสร้างใหม่เมื่อเริ่มทำงาน

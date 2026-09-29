@@ -40,7 +40,7 @@ _SCHEDULE_CONFIRM_ATTEMPTS = 4
 _SCHEDULE_CONFIRM_DELAY_SECONDS = 0.25
 _QUOTA_REASONS = {
     "quotaexceeded", "dailylimitexceeded", "dailylimitexceededunreg",
-    "uploadlimitexceeded", "userlimitexceeded",
+    "uploadlimitexceeded", "userlimitexceeded", "ratelimitexceeded",
 }
 
 
@@ -662,6 +662,37 @@ class YouTubeApi(ChannelApi):
                 "YouTube has not confirmed the requested publish time; keep the uploaded video ID and retry",
                 "schedule_unconfirmed",
             )
+
+    def get_processing_status(self, video_id: str) -> str | None:
+        """Return YouTube's processing status without exposing its API payload."""
+        try:
+            response = execute_api_request(
+                self.client.videos().list(
+                    part="processingDetails", id=video_id, maxResults=1
+                )
+            )
+        except HttpError as exc:
+            reason = _http_error_reason(exc)
+            status = int(getattr(exc.resp, "status", 0))
+            if reason in _QUOTA_REASONS or status == 429:
+                raise QuotaExceeded("YouTube API quota was reached while checking video processing") from exc
+            raise ThumbnailError(
+                f"Could not check YouTube video processing ({reason or status})",
+                retryable=status in {408, 429, 500, 502, 503, 504},
+                error_code=reason or f"http_{status}",
+            ) from exc
+        except (requests.RequestException, TransportError, TimeoutError) as exc:
+            raise ThumbnailError(
+                "Could not check YouTube video processing",
+                retryable=True,
+                error_code="processing_transport",
+            ) from exc
+        items = response.get("items", [])
+        if not items:
+            return None
+        details = items[0].get("processingDetails") or {}
+        value = details.get("processingStatus")
+        return value if isinstance(value, str) else None
 
     def refresh_videos(self, video_ids: list[str]) -> list[ApiVideoSnapshot]:
         snapshots: list[ApiVideoSnapshot] = []

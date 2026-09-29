@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import math
+import re
 import shutil
 import subprocess
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -72,8 +74,10 @@ def probe_media(path: Path, ffprobe: Path | None = None) -> MediaFacts:
     return MediaFacts(duration_seconds=duration, width=width, height=height, video_codec=codec)
 
 
-def _display_stem(path: Path) -> str:
+def _display_stem(path: Path, *, remove_short_suffix: bool = False) -> str:
     stem = path.stem
+    if remove_short_suffix and stem.casefold().endswith("-short"):
+        stem = stem[:-len("-short")]
     if stem.casefold().startswith("vdo_"):
         stem = stem[4:]
     if stem.casefold().endswith("_9x16"):
@@ -93,17 +97,85 @@ def _format_description(template: str, *, title: str, candidate: MediaCandidate,
         raise MetadataError("Description template uses an unsupported placeholder") from exc
 
 
+def _hashtag_text(value: str) -> str:
+    """Keep letters, marks, numbers, and underscores for a YouTube hashtag."""
+    normalized = unicodedata.normalize("NFC", value.strip()).lstrip("@")
+    return "".join(
+        character
+        for character in normalized
+        if character == "_" or unicodedata.category(character)[0] in {"L", "M", "N"}
+    )
+
+
+def _game_hashtag(path: Path) -> str | None:
+    """Use the final underscore-separated filename token when one is available."""
+    stem = path.stem
+    if stem.casefold().endswith("_9x16"):
+        stem = stem[:-5]
+    if stem.casefold().startswith("vdo_"):
+        stem = stem[4:]
+    _, separator, game_name = stem.rpartition("_")
+    game = _hashtag_text(game_name)
+    if not separator or not game:
+        return None
+    return f"#{game}"
+
+
+def _vertical_short_hashtags(candidate: MediaCandidate, profile: UploadProfile) -> list[str]:
+    channel_name = _hashtag_text(profile.channel_alias)
+    if not channel_name:
+        raise MetadataError("channel_alias cannot be converted to a channel hashtag")
+
+    hashtags = [f"#{channel_name}", "#vtuberth"]
+    game_hashtag = _game_hashtag(candidate.path)
+    if game_hashtag:
+        hashtags.append(game_hashtag)
+    hashtags.append("#วันว่างๆ")
+    return hashtags
+
+
+def _append_title_hashtags(title: str, hashtags: list[str]) -> str:
+    existing = {
+        hashtag.casefold()
+        for hashtag in re.findall(r"(?<![\w#])#[^\s#]+", title)
+    }
+    missing = [hashtag for hashtag in hashtags if hashtag.casefold() not in existing]
+    return f"{title.rstrip()} {' '.join(missing)}" if missing else title
+
+
+def _append_vertical_short_hashtags(description: str, hashtags: list[str]) -> str:
+    for hashtag in hashtags:
+        description = re.sub(
+            rf"(?<!\S){re.escape(hashtag)}(?!\S)", "", description, flags=re.IGNORECASE
+        )
+    description = re.sub(r"(?m)[\t ]{2,}", " ", description)
+    description = re.sub(r"(?m)[\t ]+$", "", description)
+    description = re.sub(r"\n{3,}", "\n\n", description).rstrip()
+    hashtag_line = " ".join(hashtags)
+    return f"{description}\n\n{hashtag_line}" if description else hashtag_line
+
+
 def build_metadata(candidate: MediaCandidate, facts: MediaFacts, profile: UploadProfile) -> VideoMetadata:
     """Build YouTube fields only from the media filename and configured profile."""
-    title = _display_stem(candidate.path)
     is_vertical_or_square = facts.height >= facts.width
     short_candidate = (
         is_vertical_or_square
         and facts.duration_seconds <= _SHORTS_MAX_SECONDS
         and not profile.is_official_artist_channel
     )
+    title = _display_stem(
+        candidate.path,
+        remove_short_suffix=short_candidate and facts.height > facts.width,
+    )
     if short_candidate and profile.shorts_title_suffix:
         title = f"{title}{profile.shorts_title_suffix}"
+    vertical_short_hashtags = (
+        _vertical_short_hashtags(candidate, profile)
+        if short_candidate and facts.height > facts.width
+        else None
+    )
+    if vertical_short_hashtags:
+        title = _append_title_hashtags(title, vertical_short_hashtags)
     if len(title) > _MAX_TITLE_CHARACTERS:
         raise MetadataError("YouTube titles cannot exceed 100 characters")
 
@@ -111,6 +183,8 @@ def build_metadata(candidate: MediaCandidate, facts: MediaFacts, profile: Upload
     if not isinstance(template, str) or not template.strip():
         raise MetadataError("description_template is required")
     description = _format_description(template, title=title, candidate=candidate, profile=profile)
+    if vertical_short_hashtags:
+        description = _append_vertical_short_hashtags(description, vertical_short_hashtags)
     if len(description.encode("utf-8")) > _MAX_DESCRIPTION_BYTES:
         raise MetadataError("YouTube descriptions cannot exceed 5000 bytes")
     if not isinstance(profile.category_id, str) or not profile.category_id.strip():

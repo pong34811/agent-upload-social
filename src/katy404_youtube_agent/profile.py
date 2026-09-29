@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 from dataclasses import asdict, fields
 from pathlib import Path
@@ -95,6 +96,100 @@ class ProfileStore:
 
     def save(self, profile: UploadProfile) -> None:
         save_profile(self.path, profile)
+
+
+_PROFILE_KEY = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+
+
+def saved_profile_paths(root: Path) -> list[tuple[str, Path]]:
+    """Return valid named profile files under ``root/profiles`` in stable order."""
+    directory = Path(root) / "profiles"
+    if not directory.is_dir():
+        return []
+    profiles = [
+        (path.stem.casefold(), path)
+        for path in directory.glob("*.json")
+        if path.is_file() and _PROFILE_KEY.fullmatch(path.stem.casefold())
+    ]
+    return sorted(profiles, key=lambda item: item[0])
+
+
+def selectable_profile_paths(root: Path) -> list[tuple[str, Path]]:
+    """List named profiles plus a distinct legacy profile, if one is still present."""
+    root = Path(root)
+    profiles = saved_profile_paths(root)
+    legacy_path = root / "profile.json"
+    if not legacy_path.is_file():
+        return profiles
+    try:
+        legacy_profile = load_profile(legacy_path)
+    except ProfileError:
+        return profiles
+
+    for _, path in profiles:
+        try:
+            candidate = load_profile(path)
+        except ProfileError:
+            continue
+        same_channel = (
+            legacy_profile.channel_id is not None
+            and legacy_profile.channel_id == candidate.channel_id
+        )
+        same_legacy_identity = (
+            isinstance(legacy_profile.oauth_account_key, str)
+            and isinstance(candidate.oauth_account_key, str)
+            and legacy_profile.oauth_account_key.casefold() == candidate.oauth_account_key.casefold()
+            and legacy_profile.channel_alias.casefold() == candidate.channel_alias.casefold()
+            and (
+                legacy_profile.channel_id is None
+                or candidate.channel_id is None
+                or legacy_profile.channel_id == candidate.channel_id
+            )
+        )
+        if same_channel or same_legacy_identity:
+            return profiles
+
+    preferred_key = (
+        legacy_profile.oauth_account_key.casefold()
+        if isinstance(legacy_profile.oauth_account_key, str)
+        else "legacy"
+    )
+    key = preferred_key if _PROFILE_KEY.fullmatch(preferred_key) else "legacy"
+    occupied = {name for name, _ in profiles}
+    if key in occupied:
+        key = "legacy"
+        while key in occupied:
+            key += "_legacy"
+    return sorted([*profiles, (key, legacy_path)], key=lambda item: item[0])
+
+
+def resolve_profile_path(
+    root: Path,
+    profile_name: str | None,
+    *,
+    for_setup: bool = False,
+) -> Path:
+    """Resolve an explicit named profile, or a safe legacy/single-profile default."""
+    root = Path(root)
+    named_profiles = saved_profile_paths(root)
+    profiles = selectable_profile_paths(root)
+    if profile_name is not None:
+        key = profile_name.strip().casefold()
+        if not _PROFILE_KEY.fullmatch(key):
+            raise ProfileError("ชื่อโปรไฟล์ใช้ได้เฉพาะ a-z, 0-9, _ และ - โดยขึ้นต้นด้วยตัวอักษรหรือตัวเลข")
+        if not for_setup:
+            for name, path in profiles:
+                if name == key:
+                    return path
+        return root / "profiles" / f"{key}.json"
+    if for_setup and named_profiles:
+        raise ProfileError("เมื่อมีโปรไฟล์แยกแล้ว ให้ระบุ --profile <ชื่อ> เพื่อเลือกไฟล์ที่จะตั้งค่า")
+    if len(profiles) > 1:
+        names = ", ".join(name for name, _ in profiles)
+        raise ProfileError(f"พบหลายโปรไฟล์ ({names}); โปรดระบุ --profile <ชื่อ> เช่น --profile {profiles[0][0]}")
+    if profiles:
+        return profiles[0][1]
+    return root / "profile.json"
 
 
 def _require_text(value: Any, field_name: str) -> str:

@@ -25,6 +25,8 @@ from .models import BatchReport, UploadProfile
 from .profile import (
     ProfileError,
     ProfileStore,
+    resolve_profile_path,
+    selectable_profile_paths,
     validate_upload_profile,
 )
 from .runner import BatchRunner
@@ -97,31 +99,40 @@ class OAuthService:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="kt404-youtube",
-        description="ตัวช่วยอัปโหลดวิดีโอ YouTube ในเครื่องสำหรับช่อง Katy404",
+        description="ตัวช่วยอัปโหลดวิดีโอ YouTube ในเครื่องสำหรับช่องที่เลือก",
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
     profile = commands.add_parser("profile", help="ตั้งค่าและจัดการโปรไฟล์ช่อง")
     profile_commands = profile.add_subparsers(dest="profile_command", required=True)
+    profile_commands.add_parser("list", help="แสดงโปรไฟล์ช่องที่บันทึกไว้")
     setup = profile_commands.add_parser("setup", help="เชื่อม OAuth เลือกช่อง และตั้งค่าโปรไฟล์สำหรับอัปโหลด")
+    _add_profile_selection(setup)
     setup.add_argument("--client-secrets", type=Path, help="พาธ Desktop OAuth JSON (ค่าเริ่มต้นคือไฟล์ในโฟลเดอร์โปรเจกต์)")
     setup.add_argument("--oauth-account", default=OWNER_ACCOUNT_KEY, help="ชื่อ credential ที่จะใช้ เช่น channel2")
     setup.add_argument("--replace-existing", action="store_true", help="ตั้งค่าโปรไฟล์ใหม่และเก็บสำเนาโปรไฟล์เดิมไว้")
-    profile_commands.add_parser("show", help="แสดงค่าที่ตั้งไว้โดยไม่แสดง token")
+    show = profile_commands.add_parser("show", help="แสดงค่าที่ตั้งไว้โดยไม่แสดง token")
+    _add_profile_selection(show)
     privacy = profile_commands.add_parser("set-privacy", help="เปลี่ยนความเป็นส่วนตัวเริ่มต้น")
+    _add_profile_selection(privacy)
     privacy.add_argument("status", choices=("private", "unlisted", "public"))
     audit = profile_commands.add_parser("set-api-audit-status", help="บันทึกข้อมูล audit เดิม; ไม่มีผลต่อการเรียก API")
+    _add_profile_selection(audit)
     audit.add_argument("status", choices=("passed", "not-passed"))
     delete_data = profile_commands.add_parser("delete-account-data", help="ลบข้อมูล API ของช่องในเครื่อง")
+    _add_profile_selection(delete_data)
     delete_data.add_argument("--channel-id")
     retry_failed = profile_commands.add_parser("retry-failed", help="เตรียมงานที่ล้มเหลวหนึ่งไฟล์ให้ลองใหม่")
+    _add_profile_selection(retry_failed)
     retry_failed.add_argument("--path", required=True, type=Path)
     revoke = profile_commands.add_parser("revoke-authorization", help="ยกเลิกสิทธิ์ OAuth และลบข้อมูลช่อง")
+    _add_profile_selection(revoke)
     revoke.add_argument("--channel-id")
 
     auth = commands.add_parser("auth", help="เชื่อมบัญชี Google สำหรับ YouTube")
     auth_commands = auth.add_subparsers(dest="auth_command", required=True)
     login = auth_commands.add_parser("login", help="สร้าง/ตรวจ OAuth credential โดยไม่อัปโหลดวิดีโอ")
+    _add_profile_selection(login)
     login.add_argument("--channel", required=True, help="ชื่อช่อง, handle หรือ channel ID ที่ต้องการเชื่อม")
     token = auth_commands.add_parser(
         "token",
@@ -130,12 +141,15 @@ def _build_parser() -> argparse.ArgumentParser:
     token.add_argument("--client-secrets", required=True, type=Path, help="พาธ Desktop OAuth JSON")
     token.add_argument("--account", default=OWNER_ACCOUNT_KEY, help="ชื่อใหม่สำหรับเก็บ credential แยกจากบัญชีเดิม")
     auth_commands.add_parser("accounts", help="แสดงชื่อ credential ที่บันทึกไว้ โดยไม่แสดง token")
-    auth_commands.add_parser("reauthorize", help="ขอ OAuth consent ใหม่เพื่อเพิ่มสิทธิ์ตั้งเวลาเผยแพร่")
+    reauthorize = auth_commands.add_parser("reauthorize", help="ขอ OAuth consent ใหม่เพื่อเพิ่มสิทธิ์ตั้งเวลาเผยแพร่")
+    _add_profile_selection(reauthorize)
 
     for name in ("dry-run", "upload"):
         command = commands.add_parser(name, help="ตรวจไฟล์ในโฟลเดอร์ที่ระบุ" if name == "dry-run" else "อัปโหลดโฟลเดอร์ที่ระบุ")
+        _add_profile_selection(command)
         command.add_argument("--folder", required=True, type=Path)
         command.add_argument("--channel", required=True)
+        command.add_argument("--file", help="เลือกชื่อไฟล์ระดับบนสุดในโฟลเดอร์ที่ระบุ")
         if name == "upload":
             command.add_argument("--limit", type=int)
             command.add_argument("--force-private", action="store_true")
@@ -145,6 +159,7 @@ def _build_parser() -> argparse.ArgumentParser:
             )
 
     schedule = commands.add_parser("schedule", help="ตั้งเวลาเผยแพร่วิดีโอ Private ที่อัปโหลดแล้ว")
+    _add_profile_selection(schedule)
     schedule.add_argument("--video-id", required=True)
     schedule.add_argument(
         "--publish-at", required=True,
@@ -153,8 +168,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     maintenance = commands.add_parser("maintenance", help="ดูแลการเชื่อมต่อและข้อมูล API")
     maintenance_commands = maintenance.add_subparsers(dest="maintenance_command", required=True)
-    maintenance_commands.add_parser("refresh", help="ตรวจสิทธิ์ช่องและปรับปรุงข้อมูลตามรอบเก็บรักษา")
+    refresh = maintenance_commands.add_parser("refresh", help="ตรวจสิทธิ์ช่องและปรับปรุงข้อมูลตามรอบเก็บรักษา")
+    _add_profile_selection(refresh)
     return parser
+
+
+def _add_profile_selection(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--profile",
+        dest="profile_name",
+        metavar="NAME",
+        help="เลือกไฟล์ profiles/NAME.json; ระบุเมื่อตั้งค่าโปรไฟล์แยกหรือเมื่อมีหลายโปรไฟล์",
+    )
 
 
 class CliApp:
@@ -172,6 +197,7 @@ class CliApp:
     ) -> None:
         self.runner = runner
         self.profile_store = profile_store
+        self.profile_root = Path(profile_store.path).parent
         self.credential_store = credential_store
         self.oauth = oauth_service
         self.store = store if store is not None else runner.store
@@ -181,6 +207,27 @@ class CliApp:
         parser = _build_parser()
         try:
             args = parser.parse_args(argv)
+            if args.command == "profile" and args.profile_command == "list":
+                return self._list_profiles()
+            uses_profile = (
+                args.command in {"dry-run", "upload", "schedule", "maintenance"}
+                or (args.command == "profile" and args.profile_command != "list")
+                or (args.command == "auth" and args.auth_command in {"login", "reauthorize"})
+            )
+            if uses_profile:
+                for_setup = args.command == "profile" and args.profile_command == "setup"
+                try:
+                    selected_path = resolve_profile_path(
+                        self.profile_root,
+                        getattr(args, "profile_name", None),
+                        for_setup=for_setup,
+                    )
+                except ProfileError as exc:
+                    print(self._safe_error(exc), file=sys.stderr)
+                    return 2
+                if Path(self.profile_store.path).resolve() != selected_path.resolve():
+                    self.profile_store = ProfileStore(selected_path)
+                    self.runner.profile_store = self.profile_store
             if args.command == "profile":
                 return self._run_profile(args)
             if args.command == "auth" and args.auth_command == "login":
@@ -192,7 +239,7 @@ class CliApp:
             if args.command == "auth" and args.auth_command == "reauthorize":
                 return self._auth_reauthorize()
             if args.command == "dry-run":
-                return self._dry_run(args.folder, args.channel)
+                return self._dry_run(args.folder, args.channel, args.file)
             if args.command == "upload":
                 return self._upload(args)
             if args.command == "schedule":
@@ -210,6 +257,30 @@ class CliApp:
             print(f"คำสั่งทำงานไม่สำเร็จ ({type(exc).__name__})", file=sys.stderr)
             return 1
         return 2
+
+    def _list_profiles(self) -> int:
+        root = self.profile_root
+        profiles = selectable_profile_paths(root)
+        if not profiles:
+            if (root / "profile.json").exists():
+                print("อ่านโปรไฟล์ profile.json ไม่ได้", file=sys.stderr)
+                return 2
+            print("ยังไม่มีโปรไฟล์ที่บันทึกไว้")
+            return 0
+
+        print("โปรไฟล์ที่บันทึกไว้:")
+        for name, path in profiles:
+            try:
+                profile = ProfileStore(path).load()
+            except ProfileError:
+                print(f"  {name}: ไฟล์โปรไฟล์อ่านไม่ได้")
+                continue
+            print(
+                f"  {name}: {profile.channel_alias} | "
+                f"Channel ID: {profile.channel_id or 'ยังไม่ได้ยืนยัน'} | "
+                f"OAuth account: {profile.oauth_account_key}"
+            )
+        return 0
 
     def _run_profile(self, args: argparse.Namespace) -> int:
         action = args.profile_command
@@ -358,12 +429,12 @@ class CliApp:
         print("ยังไม่ได้อัปโหลดวิดีโอ; สั่ง upload เมื่อพร้อม")
         return 0
 
-    def _dry_run(self, folder: Path, channel: str) -> int:
+    def _dry_run(self, folder: Path, channel: str, file_name: str | None = None) -> int:
         profile = self._load_profile()
         if profile is None:
             return 2
         self.runner.profile = profile
-        report = self.runner.dry_run(folder, channel)
+        report = self.runner.dry_run(folder, channel, file_name=file_name)
         ready_count = sum(item.status == "ready" for item in report.items)
         print(f"ตรวจโฟลเดอร์ระดับบนสุด: {folder}")
         print(f"วิดีโอที่พร้อม: {ready_count}")
@@ -539,6 +610,7 @@ class CliApp:
                 requested_channel,
                 limit=limit,
                 force_private=force_private,
+                file_name=args.file,
                 on_preflight=report_preflight,
                 schedule_from=schedule_start,
                 on_schedule_plan=report_schedule_plan if schedule_start is not None else None,
@@ -556,6 +628,7 @@ class CliApp:
                         clarified,
                         limit=limit,
                         force_private=force_private,
+                        file_name=args.file,
                         on_preflight=report_preflight,
                         schedule_from=schedule_start,
                         on_schedule_plan=report_schedule_plan if schedule_start is not None else None,
@@ -865,6 +938,8 @@ class CliApp:
             elif item.status.startswith("uploaded") and item.video_url:
                 error = f"; error={item.error_code}" if item.error_code else ""
                 print(f"{item.status} ({item.actual_visibility or 'unknown'}): {item.video_url}{error}")
+                if item.status == "uploaded_thumbnail_pending":
+                    print("ปกคลิปยังรอ YouTube ประมวลผลเสร็จ; รันคำสั่ง upload สำหรับไฟล์นี้อีกครั้งภายหลังเพื่อส่งปกซ้ำ")
             elif item.status == "failed" or item.status.startswith("pending"):
                 print(f"{item.status}: {item.source_path.name} ({item.error_code or 'ไม่มีรหัสข้อผิดพลาด'})")
 
