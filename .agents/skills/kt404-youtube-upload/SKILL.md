@@ -5,7 +5,7 @@ description: Upload or schedule videos to YouTube with the local Katy404 uploade
 
 # Katy404 YouTube Upload
 
-Uploader version: 0.2.0 (defined in `src/katy404_youtube_agent/__init__.py` and `pyproject.toml`).
+Uploader version: 0.3.0 (defined in `src/katy404_youtube_agent/__init__.py` and `pyproject.toml`).
 
 Use this skill only for an explicit request to upload or schedule videos through this repository. Folder discussion, inventory requests, and planning are not upload authorization.
 
