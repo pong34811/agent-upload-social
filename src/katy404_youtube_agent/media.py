@@ -82,6 +82,8 @@ def _display_stem(path: Path, *, remove_short_suffix: bool = False) -> str:
         stem = stem[4:]
     if stem.casefold().endswith("_9x16"):
         stem = stem[:-5]
+    if stem.casefold().endswith("-vdo"):
+        stem = stem[:-4]
     return stem.strip()
 
 

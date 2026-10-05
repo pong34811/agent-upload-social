@@ -1,5 +1,5 @@
 {
-  "channel_alias": "Tygarina Ch.",
+  "channel_alias": "Tygarina",
   "client_secrets_path": "client_secrets.json",
   "oauth_account_key": "tygarina",
   "channel_id": "UCaKiKA_MW4e0DHpIrfC6pzQ",
@@ -51,5 +51,5 @@
   "made_for_kids": false,
   "contains_synthetic_media": false,
   "is_official_artist_channel": false,
-  "shorts_title_suffix": ""
+  "shorts_title_suffix": " #shorts"
 }
