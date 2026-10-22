@@ -197,12 +197,34 @@ class BatchRunner:
         if scheduled_mode:
             assert schedule_from is not None
             schedule_plan = plan_daily_pairs(
-                [(candidate, facts) for candidate, facts, _ in prepared], schedule_from
+                [(candidate, facts) for candidate, facts, _ in prepared],
+                schedule_from,
+                allow_past=True,
             )
 
         jobs: list[UploadJob] = []
         scheduled_times: dict[str, datetime] = {}
+        scheduled_job_ids: set[str] = set()
         scheduled_updates: list[tuple[UploadJob, VideoMetadata, datetime]] = []
+        if schedule_plan is not None:
+            existing_by_path = {
+                os.path.normcase(os.path.abspath(job.path)): job
+                for job in self.store.list_jobs(channel.channel_id)
+            }
+            now = datetime.now(schedule_from.tzinfo)
+            for candidate, _, _ in prepared:
+                scheduled_at = schedule_plan[candidate.path]
+                existing = existing_by_path.get(os.path.normcase(os.path.abspath(candidate.path)))
+                if existing is not None and existing.state == "complete":
+                    if existing.metadata.publish_at != format_publish_at(scheduled_at):
+                        raise ProfileError(
+                            "Scheduled preflight would change an already completed video's publish time"
+                        )
+                elif scheduled_at <= now:
+                    raise ProfileError(
+                        "Scheduled preflight found a past publish time for a video that is not complete"
+                    )
+
         for candidate, _, metadata in prepared:
             if schedule_plan is not None:
                 scheduled_at = schedule_plan[candidate.path]
@@ -231,10 +253,11 @@ class BatchRunner:
                     )
                 if job.state in {"failed", "skipped"}:
                     raise ProfileError("Scheduled batches cannot contain failed or skipped local jobs")
-                if job.id in scheduled_times:
+                if job.id in scheduled_job_ids:
                     raise ProfileError(
                         "Scheduled preflight found duplicate video content assigned to multiple daily slots"
                     )
+                scheduled_job_ids.add(job.id)
                 if job.state == "uploading" and (
                     job.metadata.publish_at != metadata.publish_at
                     or job.metadata.privacy_status != "private"
@@ -251,8 +274,9 @@ class BatchRunner:
                         raise ProfileError(
                             "YouTube received all video bytes but has not confirmed completion; keep the session and retry status reconciliation"
                         )
-                scheduled_times[job.id] = scheduled_at
-                scheduled_updates.append((job, metadata, scheduled_at))
+                if job.state != "complete":
+                    scheduled_times[job.id] = scheduled_at
+                    scheduled_updates.append((job, metadata, scheduled_at))
             jobs.append(job)
 
         # Defer all existing-job schedule changes until duplicate identities and
@@ -428,6 +452,8 @@ class BatchRunner:
                 items.append(thumbnail_item)
                 if quota:
                     stopped_reason = "quota"
+                elif thumbnail_item.status == "uploaded_thumbnail_failed":
+                    stopped_reason = thumbnail_item.error_code or "thumbnail_failed"
                 elif scheduled_at is not None and thumbnail_item.error_code == "changed_thumbnail":
                     for pending in jobs[index + 1 :]:
                         items.append(UploadItemResult(status="pending_batch", source_path=pending.path))
@@ -599,6 +625,9 @@ class BatchRunner:
                 for pending in jobs[index + 1 :]:
                     items.append(UploadItemResult(status="pending_quota", source_path=pending.path))
                 break
+            if thumbnail_item.status == "uploaded_thumbnail_failed":
+                stopped_reason = thumbnail_item.error_code or "thumbnail_failed"
+                continue
             if scheduled_at is not None and thumbnail_item.error_code == "changed_thumbnail":
                 for pending in jobs[index + 1 :]:
                     items.append(UploadItemResult(status="pending_batch", source_path=pending.path))

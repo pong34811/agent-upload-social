@@ -51,5 +51,11 @@
   "made_for_kids": false,
   "contains_synthetic_media": false,
   "is_official_artist_channel": false,
-  "shorts_title_suffix": " #shorts"
+  "shorts_title_suffix": " #shorts",
+  "vertical_short_hashtags": [
+    "#Tygarina",
+    "#vtuberth",
+    "#วันว่างๆ",
+    "#shorts"
+  ]
 }

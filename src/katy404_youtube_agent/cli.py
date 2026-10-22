@@ -30,7 +30,7 @@ from .profile import (
     validate_upload_profile,
 )
 from .runner import BatchRunner
-from .scheduling import format_publish_at, parse_publish_at
+from .scheduling import format_publish_at, parse_publish_at, parse_schedule_start
 from .store import JobStateError, JobStore
 from .youtube import QuotaExceeded, VideoSchedulingError, YouTubeApi
 
@@ -544,7 +544,7 @@ class CliApp:
         profile = self._load_profile()
         if profile is None:
             return 2
-        schedule_start = parse_publish_at(args.schedule_from) if args.schedule_from else None
+        schedule_start = parse_schedule_start(args.schedule_from) if args.schedule_from else None
         limit = args.limit
         force_private = args.force_private
         if schedule_start is not None:

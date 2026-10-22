@@ -187,6 +187,36 @@ def test_retry_after_thumbnail_failure_does_not_insert_video_again(fake_api, run
     assert second.items[0].thumbnail_status == "success"
 
 
+def test_thumbnail_failure_on_uploaded_job_stops_remaining_batch(
+    fake_api, runner, two_prepared_jobs, store
+):
+    first, second = two_prepared_jobs
+    store.mark_video_uploaded(first.id, "video-existing", confirmed_at=NOW)
+    store.mark_thumbnail_result(first.id, success=False)
+    fake_api.set_thumbnail.side_effect = ThumbnailError("thumbnail rejected", error_code="thumbnail_rejected")
+
+    report = runner.upload_prepared([store.get_job(first.id), second])
+
+    assert report.items[0].status == "uploaded_thumbnail_failed"
+    assert report.items[1].status == "pending_batch"
+    assert report.stopped_reason == "thumbnail_rejected"
+    assert fake_api.begin_upload.call_count == 0
+
+
+def test_thumbnail_failure_after_upload_stops_remaining_batch(
+    fake_api, runner, two_prepared_jobs, store
+):
+    fake_api.set_thumbnail.side_effect = ThumbnailError("thumbnail rejected", error_code="thumbnail_rejected")
+
+    report = runner.upload_prepared(two_prepared_jobs)
+
+    assert report.items[0].status == "uploaded_thumbnail_failed"
+    assert report.items[1].status == "pending_batch"
+    assert report.stopped_reason == "thumbnail_rejected"
+    assert fake_api.begin_upload.call_count == 1
+    assert store.get_job(two_prepared_jobs[1].id).state == "validated"
+
+
 def test_quota_error_stops_remaining_files_without_retrying_them(fake_api, runner, two_prepared_jobs):
     fake_api.begin_upload.side_effect = QuotaExceeded("upload limit reached", reason="uploadlimitexceeded")
 

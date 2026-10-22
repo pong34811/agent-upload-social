@@ -22,6 +22,7 @@ class UploadProfile:
     contains_synthetic_media: bool | None = None
     is_official_artist_channel: bool = False
     shorts_title_suffix: str = " #Shorts"
+    vertical_short_hashtags: tuple[str, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True, slots=True)

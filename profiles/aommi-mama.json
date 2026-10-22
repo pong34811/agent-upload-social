@@ -49,5 +49,11 @@
   "made_for_kids": false,
   "contains_synthetic_media": false,
   "is_official_artist_channel": false,
-  "shorts_title_suffix": " #Shorts"
+  "shorts_title_suffix": "",
+  "vertical_short_hashtags": [
+    "#aomimama",
+    "#vtuberth",
+    "#วันว่างๆ",
+    "#shorts"
+  ]
 }

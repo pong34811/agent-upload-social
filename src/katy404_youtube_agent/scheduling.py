@@ -14,8 +14,8 @@ _RFC3339 = re.compile(
 )
 
 
-def parse_publish_at(value: str) -> datetime:
-    """Parse an RFC 3339 timestamp with an explicit offset, and reject past times."""
+def _parse_rfc3339_time(value: str) -> datetime:
+    """Parse an RFC 3339 timestamp with an explicit offset."""
     if not isinstance(value, str) or not _RFC3339.fullmatch(value.strip()):
         raise ValueError("publish time must be RFC 3339 with an explicit UTC offset")
     normalized = value.strip().replace("Z", "+00:00")
@@ -25,10 +25,20 @@ def parse_publish_at(value: str) -> datetime:
         raise ValueError("publish time is not a valid RFC 3339 timestamp") from exc
     if publish_at.tzinfo is None or publish_at.utcoffset() is None:
         raise ValueError("publish time must include a UTC offset")
-    publish_at = publish_at.replace(microsecond=0)
+    return publish_at.replace(microsecond=0)
+
+
+def parse_publish_at(value: str) -> datetime:
+    """Parse a future RFC 3339 publish timestamp with an explicit offset."""
+    publish_at = _parse_rfc3339_time(value)
     if publish_at <= datetime.now(publish_at.tzinfo):
         raise ValueError("publish time must be in the future")
     return publish_at
+
+
+def parse_schedule_start(value: str) -> datetime:
+    """Parse a schedule's original start time, including when resuming it later."""
+    return _parse_rfc3339_time(value)
 
 
 def format_publish_at(value: datetime) -> str:
@@ -39,12 +49,15 @@ def format_publish_at(value: datetime) -> str:
 
 
 def plan_daily_pairs(
-    items: Sequence[tuple[MediaCandidate, MediaFacts]], start: datetime
+    items: Sequence[tuple[MediaCandidate, MediaFacts]],
+    start: datetime,
+    *,
+    allow_past: bool = False,
 ) -> dict[Path, datetime]:
     """Pair same-rank landscape and portrait files on consecutive days."""
     if not isinstance(start, datetime) or start.tzinfo is None or start.utcoffset() is None:
         raise ValueError("schedule start must include a UTC offset")
-    if start <= datetime.now(start.tzinfo):
+    if not allow_past and start <= datetime.now(start.tzinfo):
         raise ValueError("schedule start must be in the future")
     groups: dict[str, list[MediaCandidate]] = {"landscape": [], "portrait": []}
     for candidate, facts in items:

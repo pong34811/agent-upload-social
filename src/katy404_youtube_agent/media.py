@@ -87,6 +87,21 @@ def _display_stem(path: Path, *, remove_short_suffix: bool = False) -> str:
     return stem.strip()
 
 
+def _truncate_title_to_fit_hashtags(title: str, hashtags: list[str], max_length: int = 100) -> str:
+    """Truncate the descriptive title so all requested hashtags fit within YouTube's limit."""
+    full = _append_title_hashtags(title, hashtags)
+    if len(full) <= max_length:
+        return full
+
+    hashtag_text = " ".join(hashtags)
+    reserved = len(hashtag_text) + 1
+    available = max_length - reserved
+    if available < 1:
+        raise MetadataError("Requested vertical hashtags exceed YouTube's title limit")
+
+    return f"{title[:available].rstrip()} {hashtag_text}"
+
+
 def _format_description(template: str, *, title: str, candidate: MediaCandidate, profile: UploadProfile) -> str:
     values: dict[str, Any] = {
         "title": title,
@@ -124,6 +139,9 @@ def _game_hashtag(path: Path) -> str | None:
 
 
 def _vertical_short_hashtags(candidate: MediaCandidate, profile: UploadProfile) -> list[str]:
+    if profile.vertical_short_hashtags:
+        return list(profile.vertical_short_hashtags)
+
     channel_name = _hashtag_text(profile.channel_alias)
     if not channel_name:
         raise MetadataError("channel_alias cannot be converted to a channel hashtag")
@@ -133,6 +151,7 @@ def _vertical_short_hashtags(candidate: MediaCandidate, profile: UploadProfile) 
     if game_hashtag:
         hashtags.append(game_hashtag)
     hashtags.append("#วันว่างๆ")
+    hashtags.append("#shorts")
     return hashtags
 
 
@@ -173,11 +192,14 @@ def build_metadata(candidate: MediaCandidate, facts: MediaFacts, profile: Upload
         title = f"{title}{profile.shorts_title_suffix}"
     vertical_short_hashtags = (
         _vertical_short_hashtags(candidate, profile)
-        if short_candidate and facts.height > facts.width
+        if facts.height > facts.width and (short_candidate or profile.vertical_short_hashtags)
         else None
     )
     if vertical_short_hashtags:
-        title = _append_title_hashtags(title, vertical_short_hashtags)
+        if profile.vertical_short_hashtags:
+            title = _truncate_title_to_fit_hashtags(title, vertical_short_hashtags)
+        else:
+            title = _append_title_hashtags(title, vertical_short_hashtags)
     if len(title) > _MAX_TITLE_CHARACTERS:
         raise MetadataError("YouTube titles cannot exceed 100 characters")
 

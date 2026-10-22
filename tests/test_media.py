@@ -11,7 +11,7 @@ from katy404_youtube_agent.media import (
     build_metadata,
     probe_media,
 )
-from katy404_youtube_agent.models import MediaFacts
+from katy404_youtube_agent.models import MediaCandidate, MediaFacts, UploadProfile
 
 
 def test_metadata_strips_internal_prefix_and_preserves_thai_and_short_suffix(candidate, valid_profile):
@@ -38,6 +38,20 @@ def test_armigon_vertical_short_title_removes_short_marker_and_uses_requested_ha
     metadata = build_metadata(candidate, MediaFacts(duration_seconds=90, width=1080, height=1920), profile)
 
     assert metadata.title == "01-01 Peak - เกม - ช่วยโฮชิให้รอดจากเขา #shorts #Armigon #vtuberth #วันว่างๆ"
+
+
+def test_long_vertical_video_uses_profile_hashtags_even_when_not_a_short(candidate, valid_profile):
+    candidate = dataclasses.replace(candidate, path=Path("บอสมังกร_Soul Walker-vdo_9x16.mov"))
+    profile = dataclasses.replace(
+        valid_profile,
+        vertical_short_hashtags=("#katy404", "#vtuberth", "#วันว่างๆ", "#shorts"),
+        shorts_title_suffix="",
+    )
+
+    metadata = build_metadata(candidate, MediaFacts(duration_seconds=240, width=1080, height=1920), profile)
+
+    assert metadata.title == "บอสมังกร_Soul Walker #katy404 #vtuberth #วันว่างๆ #shorts"
+    assert metadata.short_candidate is False
 
 
 def test_official_artist_channel_profile_does_not_add_standard_shorts_suffix(candidate, valid_profile):
@@ -105,3 +119,49 @@ def test_metadata_rejects_title_over_100_characters(candidate, valid_profile):
 
     with pytest.raises(MetadataError, match="100 characters"):
         build_metadata(long_video, MediaFacts(duration_seconds=90, width=1080, height=1920), valid_profile)
+
+
+def test_vertical_short_hashtags_includes_shorts():
+    from katy404_youtube_agent.media import _vertical_short_hashtags
+
+    candidate = MediaCandidate(
+        path=Path("test_Minecraft-vdo_9x16.mov"),
+        thumbnail_path=Path("test_Minecraft-vdo_9x16.jpg"),
+        sha256="a" * 64,
+        thumbnail_sha256="b" * 64,
+        size_bytes=1000,
+        thumbnail_size_bytes=100,
+        modified_ns=0,
+    )
+    profile = UploadProfile(
+        channel_alias="KATY_404",
+        client_secrets_path=None,
+        oauth_account_key="katy404",
+        channel_id="UCXT92S422lAnfBfsPrxpEFw",
+        privacy_status="public",
+        category_id="22",
+        description_template="{title}",
+        tags=(),
+        made_for_kids=False,
+        contains_synthetic_media=False,
+        is_official_artist_channel=False,
+        shorts_title_suffix="",
+    )
+    profile = dataclasses.replace(
+        profile,
+        vertical_short_hashtags=("#katy404", "#vtuberth", "#วันว่างๆ", "#shorts"),
+    )
+    hashtags = _vertical_short_hashtags(candidate, profile)
+    assert hashtags == ["#katy404", "#vtuberth", "#วันว่างๆ", "#shorts"]
+
+
+def test_long_vertical_title_truncated_to_fit_hashtags_without_filename_suffix():
+    from katy404_youtube_agent.media import _truncate_title_to_fit_hashtags
+
+    long_title = "คุยกับเพื่อนตั้งนาน ลืมเอาเสียงเข้าไลฟ์_Minecraft-vdo_9x16"
+    hashtags = ["#katy404", "#vtuberth", "#วันว่างๆ", "#shorts"]
+    result = _truncate_title_to_fit_hashtags(long_title, hashtags)
+    assert len(result) <= 100
+    assert not result.endswith("-vdo_9x16")
+    assert "#shorts" in result
+    assert "#katy404" in result

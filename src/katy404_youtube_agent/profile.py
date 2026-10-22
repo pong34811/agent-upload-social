@@ -51,6 +51,12 @@ def load_profile(path: Path) -> UploadProfile:
     if not isinstance(tags, (list, tuple)) or not all(isinstance(tag, str) for tag in tags):
         raise ProfileError("tags must be a list of strings")
     data["tags"] = tuple(tags)
+    vertical_short_hashtags = data.get("vertical_short_hashtags", ())
+    if not isinstance(vertical_short_hashtags, (list, tuple)) or not all(
+        isinstance(tag, str) for tag in vertical_short_hashtags
+    ):
+        raise ProfileError("vertical_short_hashtags must be a list of strings")
+    data["vertical_short_hashtags"] = tuple(vertical_short_hashtags)
 
     try:
         return UploadProfile(**data)
@@ -69,6 +75,7 @@ def save_profile(path: Path, profile: UploadProfile) -> None:
         str(profile.client_secrets_path) if profile.client_secrets_path is not None else None
     )
     payload["tags"] = list(profile.tags)
+    payload["vertical_short_hashtags"] = list(profile.vertical_short_hashtags)
     encoded = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
     temporary_path: Path | None = None

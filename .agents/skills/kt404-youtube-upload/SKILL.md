@@ -9,6 +9,18 @@ Uploader version: 0.3.0 (defined in `src/katy404_youtube_agent/__init__.py` and 
 
 Use this skill only for an explicit request to upload or schedule videos through this repository. Folder discussion, inventory requests, and planning are not upload authorization.
 
+## Vertical Shorts Hashtags
+
+The user requires vertical clips (filenames ending in `_9x16`) to include `#katy404 #vtuberth #วันว่างๆ #shorts` in the title. The `_vertical_short_hashtags` function in `src/katy404_youtube_agent/media.py` generates these hashtags. If the user requests different hashtags, modify this function using TDD: write a failing test in `tests/test_media.py` first, then update the function, then verify all tests pass.
+
+## Token File Location
+
+OAuth credential files are stored at the repo root (e.g., `token_katy404.json`, `token_aommi-mama.json`). The `CredentialStore` loads them automatically when the correct `--profile` is specified. Do not ask the user for the token path if the file exists at the root with the expected naming pattern.
+
+## Supported Media Formats
+
+The scanner (`src/katy404_youtube_agent/scanner.py`) accepts both `.mov` and `.mp4` video files (see `_VIDEO_SUFFIXES`). Thumbnails must be `.jpg`, `.jpeg`, or `.png` with the same basename as the video.
+
 ## Workflow
 
 1. Use the exact folder and YouTube channel supplied by the user. Use session context if they already supplied them; do not ask for them again. Never search a parent folder, neighboring folder, or drive.
