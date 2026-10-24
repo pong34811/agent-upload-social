@@ -54,8 +54,10 @@ py -3.13 -m venv .venv
 
 ```powershell
 ffprobe -version
-.\.venv\Scripts\kt404-youtube.exe --help
+.\.venv\Scripts\yt-upload.exe --help
 ```
+
+คำสั่งเดิม `kt404-youtube.exe` ยังใช้ได้และเรียกโปรแกรมเดียวกัน
 
 ถ้า `ffprobe` ไม่พบ ให้ติดตั้ง/ตั้ง `PATH` ให้ถูกก่อนตรวจหรืออัปโหลดคลิป
 
@@ -86,8 +88,8 @@ C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 แสดงรายการโปรไฟล์และค่าโปรไฟล์โดยไม่แสดง OAuth token:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe profile list
-.\.venv\Scripts\kt404-youtube.exe profile show --profile armigon
+.\.venv\Scripts\yt-upload.exe profile list
+.\.venv\Scripts\yt-upload.exe profile show --profile armigon
 ```
 
 เมื่อมีหลายโปรไฟล์ ให้ระบุ `--profile <ชื่อ>` ในแต่ละคำสั่งที่ใช้งานช่อง. ถ้ามีไฟล์แยกเพียงไฟล์เดียว โปรแกรมเลือกให้อัตโนมัติได้; ถ้า `profile.json` เป็นอีกช่องหนึ่ง โปรแกรมจะแสดงช่องนั้นใน `profile list` ด้วยชื่อ OAuth account
@@ -97,7 +99,7 @@ C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 หากต้องตั้งโปรไฟล์สำหรับช่องอื่น คำสั่งนี้จะแสดงช่องที่บัญชี OAuth จัดการได้และบันทึกค่าประจำช่อง:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe profile setup --profile new-channel --client-secrets ".\client_secrets.json" --oauth-account new-account
+.\.venv\Scripts\yt-upload.exe profile setup --profile new-channel --client-secrets ".\client_secrets.json" --oauth-account new-account
 ```
 
 เลือกช่องที่ตรงกับชื่อโปรไฟล์ แล้วกรอก metadata และค่าที่ YouTube ต้องใช้ตามข้อเท็จจริง. หากโปรไฟล์ชื่อนั้นมีอยู่แล้ว ให้เพิ่ม `--replace-existing` เพื่อเก็บสำเนาก่อนแทนค่า. ไม่ต้องกรอกสถานะ audit ก่อนอัปโหลด; ค่า `api_audit_passed` เดิมไม่มีผลต่อการส่งคำขอ. Google อาจจำกัด project ที่ยังไม่ผ่านการตรวจสอบให้วิดีโอเป็น Private; โปรแกรมใช้ผลจริงจาก API และอ่านตาราง `private` + `publishAt` กลับก่อนรายงานสำเร็จ
@@ -107,7 +109,7 @@ C:\Users\warit\Desktop\agent-upload-social\client_secrets.json
 ระบุโฟลเดอร์และช่องในคำสั่งเดียว; uploader ตรวจไฟล์ก่อนส่งให้อยู่แล้ว:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --profile armigon --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
+.\.venv\Scripts\yt-upload.exe upload --profile armigon --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
 ```
 
 ถ้าต้องการดูผลก่อนส่ง ใช้ `dry-run` เพิ่มเติมได้ แต่ไม่จำเป็น. รูปแบบชื่อไฟล์วิดีโอและภาพปกที่รองรับ:
@@ -120,7 +122,7 @@ vdo_ชื่อคลิป_9x16.mov     vdo_ชื่อคลิป_9x16.jpg
 รองรับวิดีโอ `.mp4`/`.mov` และภาพ `.jpg`, `.jpeg` หรือ `.png`; ชื่อ `_9x16` ใช้กับคู่ไฟล์แนวตั้ง ส่วนไฟล์แนวนอนใช้ชื่อฐานโดยไม่มี suffix นี้. `dry-run` อ่านเฉพาะไฟล์ระดับบนสุดในโฟลเดอร์ที่ระบุ ไม่ค้นหาโฟลเดอร์ย่อย:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe dry-run --profile armigon --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
+.\.venv\Scripts\yt-upload.exe dry-run --profile armigon --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
 ```
 
 ทั้ง `upload` และ `dry-run` อ่านเฉพาะไฟล์ระดับบนสุดของโฟลเดอร์ที่ระบุ
@@ -134,6 +136,7 @@ vdo_ชื่อคลิป_9x16.mov     vdo_ชื่อคลิป_9x16.jpg
 - `token_<account>.json`: OAuth credential เฉพาะเครื่อง; ถูก ignore
 - `state.sqlite3`: job state เฉพาะเครื่อง; ถูก ignore และจะถูกสร้างใหม่เมื่อเริ่มทำงาน
 - `profile.json.backup-<timestamp>`: สำเนาโปรไฟล์ก่อนใช้ `profile setup --replace-existing`; ถูก ignore
+- `archive/`: สำเนาโปรไฟล์/ฐานข้อมูล/token เก่าที่เก็บไว้เผื่อย้อนดู; ถูก ignore ทั้งโฟลเดอร์ และโปรแกรมไม่อ่านไฟล์ในนี้
 
 การ clone บนเครื่องใหม่ไม่ได้ย้าย token หรือฐานข้อมูล state มาด้วย หากต้องการย้ายประวัติ job/hash เดิม ให้คัดลอก `state.sqlite3` ด้วยวิธีที่เจ้าของควบคุมและปิดโปรแกรมก่อนคัดลอก โดยห้าม commit ไฟล์นี้
 

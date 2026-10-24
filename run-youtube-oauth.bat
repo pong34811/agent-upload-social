@@ -4,7 +4,7 @@ setlocal
 rem Run from this file's folder, even when started by double-click.
 cd /d "%~dp0"
 
-set "APP=%~dp0.venv\Scripts\kt404-youtube.exe"
+set "APP=%~dp0.venv\Scripts\yt-upload.exe"
 set "CLIENT=%~dp0client_secrets.json"
 set "ACCOUNT="
 
@@ -36,7 +36,6 @@ if not defined ACCOUNT (
 
 echo.
 echo Preparing OAuth for credential label "%ACCOUNT%".
-echo This command does not call YouTube API or upload videos.
 echo This command only creates OAuth credentials; it does not call YouTube API or upload videos.
 echo.
 

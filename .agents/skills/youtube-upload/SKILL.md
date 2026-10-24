@@ -1,53 +1,45 @@
 ---
-name: kt404-youtube-upload
-description: Upload or schedule videos to YouTube with the local Katy404 uploader. Use when the user explicitly asks to upload a folder or schedule a video batch through this project.
+name: youtube-upload
+description: Upload or schedule a folder of clips to a YouTube channel with this project's local `yt-upload` CLI. Use when the user explicitly asks to upload a folder or schedule a video batch through this project.
 ---
 
-# Katy404 YouTube Upload
+# YouTube Upload
 
-Uploader version: 0.3.0 (defined in `src/katy404_youtube_agent/__init__.py` and `pyproject.toml`).
+Uploader version: 0.4.0 (`src/yt_uploader/__init__.py` and `pyproject.toml`).
 
 Use this skill only for an explicit request to upload or schedule videos through this repository. Folder discussion, inventory requests, and planning are not upload authorization.
 
-## Vertical Shorts Hashtags
-
-The user requires vertical clips (filenames ending in `_9x16`) to include `#katy404 #vtuberth #วันว่างๆ #shorts` in the title. The `_vertical_short_hashtags` function in `src/katy404_youtube_agent/media.py` generates these hashtags. If the user requests different hashtags, modify this function using TDD: write a failing test in `tests/test_media.py` first, then update the function, then verify all tests pass.
-
-## Token File Location
-
-OAuth credential files are stored at the repo root (e.g., `token_katy404.json`, `token_aommi-mama.json`). The `CredentialStore` loads them automatically when the correct `--profile` is specified. Do not ask the user for the token path if the file exists at the root with the expected naming pattern.
-
-## Supported Media Formats
-
-The scanner (`src/katy404_youtube_agent/scanner.py`) accepts both `.mov` and `.mp4` video files (see `_VIDEO_SUFFIXES`). Thumbnails must be `.jpg`, `.jpeg`, or `.png` with the same basename as the video.
-
 ## Workflow
 
-1. Use the exact folder and YouTube channel supplied by the user. Use session context if they already supplied them; do not ask for them again. Never search a parent folder, neighboring folder, or drive.
-2. Run `profile list` to find saved profiles (`profiles/<name>.json`). When more than one exists, pass `--profile <name>` on every command that uses a channel. A single named profile is selected automatically. If only the legacy `profile.json` exists, it remains supported. Do not run `profile setup` or repeat prompts when the saved profile is ready.
-3. Run `upload` directly. It performs the preflight itself. Run `dry-run` only when the user asks for a preview or inspection before sending.
-4. For scheduled batches, pass the user's requested RFC 3339 time, including its UTC offset, with `--schedule-from`. The uploader pairs filename-sorted landscape and portrait clips one of each per day. Do not change the start time or invent a schedule.
-5. Scheduled uploads request the necessary OAuth consent from Google automatically if the saved credential lacks the metadata-edit scope. Complete that flow only for the explicit upload request.
-6. Schedule through the API with `private` and `publishAt`. Report success only after API readback confirms the video, channel, privacy, and requested instant. The legacy `api_audit_passed` field is not a local blocker or proof of Google's project status; do not change it to enable uploads. If YouTube restricts the project or rejects the request, report the actual result and stop.
-7. Report the number uploaded, scheduled, skipped, or failed and include YouTube video links the CLI returned. Do not add a separate review/approval workflow.
+1. Use the exact folder and channel the user supplied (from this request or earlier in the session); do not ask again. Read only that folder's top-level files. Never search a parent folder, neighboring folder, or drive.
+2. Run `profile list --json`. When more than one profile exists, pass `--profile <name>` on every channel command; pick the profile that matches the user's channel. Do not run `profile setup` or change profile values without a reason.
+3. Run `upload ... --json` directly; it runs the preflight itself. Run `dry-run ... --json` only when the user wants a preview, and report ready/needs-fixing counts briefly.
+4. For a scheduled batch, pass the user's RFC 3339 time with its UTC offset as `--schedule-from`. Landscape and portrait clips are paired by filename, one pair per day. Never invent or shift a schedule.
+5. If the saved credential lacks the metadata-edit scope, a scheduled upload opens Google OAuth itself; complete it only for this explicit request.
+6. Report from the JSON: `summary` counts, each item's `status` and `video_url`, `publish_at` for scheduled items, and `stopped_reason`/`error` when `ok` is false. A schedule counts as done only when the CLI confirmed it (items have `publish_at`).
 
-## Command templates
+## Commands
 
-Run these from the project root. Replace `<profile-name>` with the selected profile name when multiple profiles exist or when you want to choose a specific channel. The option follows the command name, as shown:
-
-```powershell
-.\.venv\Scripts\kt404-youtube.exe profile list
-.\.venv\Scripts\kt404-youtube.exe upload --profile "<profile-name>" --folder "<user-provided-folder>" --channel "<user-provided-channel>"
-```
-
-For a scheduled landscape/portrait batch:
+Run from the project root:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --profile "<profile-name>" --folder "<user-provided-folder>" --channel "<user-provided-channel>" --schedule-from "<user-provided-RFC3339-time>"
+.\.venv\Scripts\yt-upload.exe profile list --json
+.\.venv\Scripts\yt-upload.exe upload --profile "<profile>" --folder "<user folder>" --channel "<user channel>" --json
+.\.venv\Scripts\yt-upload.exe upload --profile "<profile>" --folder "<user folder>" --channel "<user channel>" --schedule-from "<RFC3339 time>" --json
+.\.venv\Scripts\yt-upload.exe dry-run --profile "<profile>" --folder "<user folder>" --channel "<user channel>" --json
 ```
 
-## Handling failures
+## Files and metadata
 
-- Follow the CLI result for missing files, invalid media, channel mismatch, changed file hashes, quota, or authorization errors. Report the specific issue and stop; never guess a value or skip an error to continue.
+- Videos: `.mp4`/`.mov`; each needs a `.jpg`/`.jpeg`/`.png` thumbnail with the same basename. Portrait files end in `_9x16`.
+- Titles come from the filename; descriptions, tags, privacy, audience, and synthetic-media declarations come from the profile.
+- Portrait Shorts hashtags come from the profile: `vertical_short_hashtags` if set, otherwise `shorts_hashtag_template` (`{channel}`, `{game}` placeholders). To change a channel's hashtags, edit that profile file, not the code.
+- OAuth tokens live at the repo root as `token_<oauth_account_key>.json` and load automatically for the selected profile. Do not ask the user for a token path.
+
+## Failures
+
+- `ok: false` → report `error`/`stopped_reason` and the affected files, then stop. Never skip channel-ownership, broken-file, changed-hash, quota, or authorization errors; continue only after the cause is fixed.
+- `error` mentions an ambiguous channel → ask the user for the channel handle or channel ID.
+- `api_audit_passed` is not a local gate and not proof of Google's project status; do not change it. If YouTube restricts the project or rejects a request, report the real result and stop.
 - Never print, copy, or log OAuth tokens, client secrets, resumable session URLs, or API response bodies.
-- Do not create background uploads, folder watchers, or scheduled local jobs. The requested schedule is sent to YouTube by the explicit command.
+- Do not create background uploads, folder watchers, or scheduled local jobs.

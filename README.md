@@ -1,17 +1,15 @@
-# Katy404 YouTube Upload Agent
+# YouTube Upload Agent (`yt-upload`)
 
-เครื่องมือ CLI ในเครื่อง Windows สำหรับเตรียม metadata และอัปโหลดวิดีโอ `.mp4`/`.mov` พร้อมภาพปกไปยัง YouTube ช่องที่เจ้าของระบุ ปัจจุบันรองรับ YouTube เท่านั้น ไม่มี Facebook/TikTok หรือ backend/cloud hosting ของโปรแกรม; เรียก Google/YouTube API เฉพาะเมื่อเจ้าของยินยอมและสั่งงาน ไม่อ่าน parent folder และไม่เฝ้าดูโฟลเดอร์เพื่ออัปโหลดเอง
+เครื่องมือ CLI บน Windows ให้ agent (หรือเจ้าของช่อง) อัปโหลดคลิป `.mp4`/`.mov` พร้อมภาพปกลง YouTube ช่องที่ผู้ใช้ระบุ ทีละโฟลเดอร์ตามที่ผู้ใช้ส่งมา รองรับหลายช่องผ่านโปรไฟล์ `profiles/<ชื่อ>.json`. ใช้ YouTube Data API v3 เท่านั้น ไม่มี backend/cloud ไม่อ่านโฟลเดอร์ข้างเคียง และไม่เฝ้าดูโฟลเดอร์เพื่ออัปโหลดเอง
 
-## สถานะ
+- ตรวจไฟล์ก่อนส่งทุกครั้ง, กันอัปโหลดซ้ำด้วย hash และส่งต่อจากจุดเดิมเมื่อการเชื่อมต่อขัดข้อง
+- ตั้งเวลาเผยแพร่ด้วย `private` + `publishAt` แล้วอ่านกลับจาก API ก่อนรายงานสำเร็จ
+- `--json` ทุกคำสั่ง ให้ agent อ่านผลได้แน่นอน (stdout = JSON หนึ่งก้อน, ข้อความอื่นไป stderr)
+- คำสั่งเดิม `kt404-youtube` ยังใช้ได้และเรียกโปรแกรมเดียวกัน
 
-- ตรวจไฟล์ให้อัตโนมัติก่อนส่ง, กันอัปโหลดซ้ำ และส่งต่อได้เมื่อการเชื่อมต่อขัดข้อง
-- ตั้งเวลาเผยแพร่บน YouTube ได้จากคำสั่งที่เจ้าของเรียก โดยวิดีโอจะเป็น Private จนถึงเวลาที่กำหนด
-- เก็บค่าช่องแยกใน `profiles/<ชื่อ>.json`; ระบุ `--profile <ชื่อ>` เมื่อมีหลายช่อง และรองรับ `profile.json` รุ่นเดิมด้วย หากเป็นช่องแยกจากโปรไฟล์อื่นจะแสดงใน `profile list` ด้วย
-- หลัง clone ให้วาง OAuth Desktop JSON เป็น `client_secrets.json` ใน root ของ repo; credentials และ token ไม่ถูกส่งขึ้น Git. ขั้นตอนสำหรับเครื่องใหม่อยู่ใน [คู่มือติดตั้ง](docs/setup.md)
+## ติดตั้ง
 
-## ติดตั้งและเริ่มต้น
-
-ต้องใช้ Windows, Python 3.13/3.14, Git และ `ffprobe` (ติดตั้งได้จาก FFmpeg). จาก PowerShell:
+ต้องใช้ Windows, Python 3.13/3.14, Git และ `ffprobe` (จาก FFmpeg). จาก PowerShell:
 
 ```powershell
 git clone git@github.com:pong34811/agent-upload-social.git
@@ -21,54 +19,48 @@ py -3.13 -m venv .venv
 ffprobe -version
 ```
 
-วาง OAuth Desktop JSON ที่ `client_secrets.json` ใน root ของ repo. ดูโปรไฟล์ที่มีด้วย `profile list`; เมื่อมีหลายช่องให้ระบุชื่อโปรไฟล์ในทุกคำสั่งที่ใช้งานช่อง เช่น `--profile armigon`. หากยังไม่มี credential โปรแกรมจะเปิด Google OAuth ให้เอง.
+วาง OAuth Desktop JSON ที่ `client_secrets.json` ใน root ของ repo แล้วอ่าน [คู่มือติดตั้ง](docs/setup.md) ก่อนตั้ง Google Cloud/OAuth
 
-อ่าน [คู่มือติดตั้ง](docs/setup.md) ก่อนตั้ง Google Cloud/OAuth
-
-## ตรวจคลิปและอัปโหลด
-
-สั่งอัปโหลดทั้งโฟลเดอร์ด้วยคำสั่งเดียว; `upload` ตรวจไฟล์ให้เองก่อนเริ่มส่ง:
+## อัปโหลด
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --profile "<ชื่อโปรไฟล์>" --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
+.\.venv\Scripts\yt-upload.exe profile list
+.\.venv\Scripts\yt-upload.exe upload --profile "<ชื่อโปรไฟล์>" --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
 ```
 
-ใช้ `dry-run` เฉพาะเมื่อต้องการตรวจล่วงหน้าโดยไม่เชื่อมต่อ YouTube:
+`upload` ตรวจไฟล์ระดับบนสุดในโฟลเดอร์ให้เองก่อนส่ง; ใช้ `dry-run` (คำสั่งเดียวกัน) เฉพาะเมื่ออยากดูผลก่อนโดยไม่เชื่อมต่อ YouTube. เมื่อมีหลายโปรไฟล์ต้องระบุ `--profile` ทุกครั้ง
+
+ตั้งเวลา batch โดยจับคู่คลิปแนวนอน/แนวตั้งตามชื่อไฟล์ วันละคู่ เวลาเดียวกัน (ต้องมี UTC offset):
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe dry-run --profile "<ชื่อโปรไฟล์>" --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"
+.\.venv\Scripts\yt-upload.exe upload --profile "<ชื่อโปรไฟล์>" --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>" --schedule-from "2026-10-01T07:30:00+07:00"
 ```
 
-เมื่อสั่ง `upload` หากยังไม่มี OAuth credential โปรแกรมจะเปิดหน้า **local status page** และ Google OAuth ให้เจ้าของลงชื่อเข้าใช้/ยินยอมบนหน้า Google เท่านั้น; หน้าสถานะไม่รับรหัสผ่านและไม่แสดง token หลังบันทึก credential ในไฟล์ของบัญชีที่โปรไฟล์เลือกแล้ว CLI จะตรวจว่าบัญชีนั้นเข้าถึงช่องที่ระบุก่อนเริ่มส่งวิดีโอ
-
-คู่มือสำหรับ agent อยู่ที่ [.agents/skills/kt404-youtube-upload/SKILL.md](.agents/skills/kt404-youtube-upload/SKILL.md). คำสั่งดูแล OAuth และข้อมูลในเครื่องอยู่ใน [คู่มือปฏิบัติงาน](docs/operations.md)
-
-### ตั้งเวลาเผยแพร่
-
-การตั้งเวลาส่ง `private` + `publishAt` ผ่าน YouTube API โดยตรง; เวลาต้องมี UTC offset และอยู่ในอนาคต โปรแกรมอ่านสถานะกลับจาก API เพื่อยืนยันช่อง, privacy และเวลา ก่อนรายงานสำเร็จ หาก OAuth ยังไม่มี scope สำหรับตั้งเวลา คำสั่ง batch จะเปิด Google OAuth ให้ยืนยันเอง
-
-โปรแกรมไม่ใช้ค่า `api_audit_passed` ในเครื่องเป็นด่านก่อนเรียก API และไม่เปลี่ยนค่านี้เอง Google อาจจำกัดวิดีโอจาก API project ที่ยังไม่ผ่านการตรวจสอบให้เป็น Private ตามข้อกำหนดของ [YouTube videos.insert](https://developers.google.com/youtube/v3/docs/videos/insert); หาก API ปฏิเสธหรือไม่ยืนยันตาราง โปรแกรมจะรายงานผลจริงและหยุด การยืนยันตารางในปัจจุบันยังไม่ใช่หลักฐานว่าเผยแพร่แล้วในอนาคต
-
-ตั้งเวลาให้วิดีโอ Private ที่โปรแกรมจัดการไว้แล้ว:
+ตั้งเวลาวิดีโอ Private ที่อัปโหลดแล้ว:
 
 ```powershell
-.\.venv\Scripts\kt404-youtube.exe schedule --profile "<ชื่อโปรไฟล์>" --video-id VIDEO_ID --publish-at "2026-10-01T07:30:00+07:00"
+.\.venv\Scripts\yt-upload.exe schedule --profile "<ชื่อโปรไฟล์>" --video-id VIDEO_ID --publish-at "2026-10-01T07:30:00+07:00"
 ```
 
-ตั้งเวลา batch โดยจับคู่ไฟล์แนวนอนและแนวตั้งที่เรียงตามชื่อไฟล์ วันละหนึ่งคู่ เวลาเดียวกัน:
+เมื่อยังไม่มี OAuth credential โปรแกรมจะเปิด **local status page** และ Google OAuth ให้เจ้าของยินยอมบนหน้า Google เท่านั้น; หน้าสถานะไม่รับรหัสผ่านและไม่แสดง token แล้วตรวจว่าบัญชีนั้นเข้าถึงช่องที่ระบุก่อนเริ่มส่ง. ค่า `api_audit_passed` เดิมไม่ใช่ด่านในเครื่อง; ถ้า YouTube จำกัด project หรือปฏิเสธคำขอ โปรแกรมรายงานผลจริงและหยุด
 
-```powershell
-.\.venv\Scripts\kt404-youtube.exe upload --profile "<ชื่อโปรไฟล์>" --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>" --schedule-from "2026-10-01T07:30:00+07:00"
-```
+คู่มือสำหรับ agent: [.agents/skills/youtube-upload/SKILL.md](.agents/skills/youtube-upload/SKILL.md). รูปแบบ JSON, hashtag ของคลิปแนวตั้ง และคำสั่งดูแล OAuth อยู่ใน [คู่มือปฏิบัติงาน](docs/operations.md)
 
-โหมดนี้ตรวจไฟล์ทั้งหมดก่อนเริ่ม, ปฏิเสธวิดีโอจัตุรัสหรือจำนวนแนวนอน/แนวตั้งไม่เท่ากัน, และไม่ใช้ `--limit`/`--force-private`; คลิปที่อัปโหลดครบอยู่แล้วจะถูกตั้งเวลาผ่าน API โดยไม่อัปโหลดซ้ำ
+## โครงสร้างโค้ด (`src/yt_uploader/`)
 
-## พื้นที่เก็บข้อมูล
+| โมดูล | หน้าที่ |
+| --- | --- |
+| `cli/` | parser, `CliApp` และคำสั่งแยกกลุ่ม (`commands/`), การแสดงผล text/JSON (`output.py`) |
+| `pipeline/` | `preflight.py` ตรวจโฟลเดอร์และเตรียมงาน, `upload.py` อัปโหลดทีละงานและหยุดคิวเมื่อไม่ปลอดภัย, `schedule.py` ตารางเผยแพร่ |
+| `youtube/` | `client.py` YouTube API, `transport.py` resumable upload, `errors.py` |
+| `auth/` | token ต่อบัญชี, Google OAuth, หน้า status page, การจับคู่ช่อง |
+| `media/` | สแกนไฟล์ + จับคู่ปก, `ffprobe`, สร้าง title/description/hashtag |
+| `config/`, `jobs/` | โปรไฟล์ช่อง และ SQLite job state |
 
-- โปรไฟล์ช่อง: `profiles/<ชื่อ>.json`; ใช้ `profile list` เพื่อดูชื่อ และ `profile.json` เป็นค่าเริ่มต้นสำหรับการติดตั้งรุ่นเดิมที่ยังไม่มีไฟล์แยก
-- SQLite job state: `state.sqlite3` ที่โฟลเดอร์โปรเจกต์
-- OAuth token ของ account ใน preset `waritnan34811`: `token_waritnan34811.json`; บัญชีอื่นเก็บแยกใน `token_NAME.json`; `.gitignore` กันไฟล์ token ที่ขึ้นต้น `token_` ไม่ให้เข้า Git
-- OAuth Desktop JSON: `client_secrets.json` ที่โฟลเดอร์โปรเจกต์; `.gitignore` กันไฟล์ credentials และฐานข้อมูลไม่ให้เข้า Git
-- วิดีโอต้นฉบับ/ภาพ JPG ยังคงอยู่ในโฟลเดอร์ที่เจ้าของเลือก
+## ข้อมูลในเครื่อง (ไม่อยู่ใน Git)
 
-ใช้ Google YouTube Data API v3; ผู้ใช้เป็นผู้เลือก visibility, audience, synthetic media และ metadata ของแต่ละโปรไฟล์
+- `profiles/<ชื่อ>.json`: ค่าประจำช่อง (อยู่ใน Git); `profile.json` ใช้ได้กับการติดตั้งรุ่นเดิม
+- `client_secrets.json`, `token_<account>.json`: OAuth ของเครื่องนี้; ถูก ignore
+- `state.sqlite3`: job state และ hash กันส่งซ้ำ; ถูก ignore
+- `archive/`: สำเนาเก่าที่เก็บไว้เผื่อย้อนดู; ถูก ignore และโปรแกรมไม่อ่าน
+- วิดีโอต้นฉบับและภาพปกยังอยู่ในโฟลเดอร์ที่เจ้าของเลือก
