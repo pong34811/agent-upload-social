@@ -12,6 +12,7 @@ from ..youtube.errors import VideoSchedulingError
 
 _LIMIT_MESSAGES = {
     "uploadLimitExceeded": "ช่องถึงขีดจำกัดจำนวนวิดีโอที่อัปโหลดต่อวัน",
+    "uploadRateLimitExceeded": "YouTube จำกัดการส่งภาพปกชั่วคราว; รอแล้วสั่ง upload อีกครั้งเพื่อส่งปกที่ค้างและคลิปที่เหลือ",
     "quotaExceeded": "คำขอเกินโควตา API ที่ Google อนุญาต",
     "dailyLimitExceeded": "คำขอเกินขีดจำกัด API รายวัน",
     "dailyLimitExceededUnreg": "คำขอเกินขีดจำกัดรายวันของ client ที่ไม่ลงทะเบียน",

@@ -537,3 +537,19 @@ def test_upload_api_refresh_revocation_clears_channel_data_and_profile(cli, cand
     assert cli.store.list_jobs("UC123") == []
     assert cli.profile.channel_id is None
     cli.credentials.delete.assert_called_once_with("owner")
+
+
+def test_upload_rate_limit_report_explains_thumbnail_limit(capsys):
+    report = BatchReport(
+        items=[UploadItemResult(
+            status="uploaded_thumbnail_failed", source_path=Path("clip.mov"), video_id="video-1",
+            video_url="https://www.youtube.com/watch?v=video-1", error_code="uploadRateLimitExceeded",
+        )],
+        uploaded_count=1, skipped_count=0, failed_count=0, pending_count=0,
+        stopped_reason="quota",
+    )
+
+    CliApp._print_report(report)
+
+    output = capsys.readouterr().out
+    assert "หยุดคิว: uploadRateLimitExceeded — YouTube จำกัดการส่งภาพปกชั่วคราว" in output

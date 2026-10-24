@@ -372,3 +372,21 @@ def test_scheduled_upload_rejects_remote_video_without_publish_time(
     assert failure.value.error_code == "schedule_unconfirmed"
     assert api.refresh_videos.call_count == 4
     fake_api.upload_chunk.assert_called_once()
+
+
+def test_thumbnail_upload_rate_limit_stops_queue_as_quota(tmp_path):
+    from googleapiclient.errors import HttpError
+
+    thumbnail = tmp_path / "clip.jpg"
+    thumbnail.write_bytes(b"image")
+    body = json.dumps({"error": {"errors": [{"reason": "uploadRateLimitExceeded"}]}}).encode("utf-8")
+    client = Mock()
+    client.thumbnails.return_value.set.return_value.execute.side_effect = HttpError(
+        Mock(status=429), body
+    )
+    api = YouTubeApi(credentials=None, client=client, transport=Mock())
+
+    with pytest.raises(QuotaExceeded) as raised:
+        api.set_thumbnail("video-123", thumbnail)
+
+    assert raised.value.error_code == "uploadRateLimitExceeded"

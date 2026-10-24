@@ -8,7 +8,7 @@ from googleapiclient.errors import HttpError
 
 _QUOTA_REASONS = {
     "quotaexceeded", "dailylimitexceeded", "dailylimitexceededunreg",
-    "uploadlimitexceeded", "userlimitexceeded", "ratelimitexceeded",
+    "uploadlimitexceeded", "uploadratelimitexceeded", "userlimitexceeded", "ratelimitexceeded",
 }
 
 
@@ -47,6 +47,7 @@ class QuotaExceeded(RuntimeError):
             "dailylimitexceeded": "dailyLimitExceeded",
             "dailylimitexceededunreg": "dailyLimitExceededUnreg",
             "uploadlimitexceeded": "uploadLimitExceeded",
+            "uploadratelimitexceeded": "uploadRateLimitExceeded",
             "userlimitexceeded": "userLimitExceeded",
         }.get(reason, "quota")
 
