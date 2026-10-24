@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from katy404_youtube_agent.scanner import scan_folder
+from yt_uploader.media.scanner import scan_folder
 
 
 def test_scan_uses_top_level_files_and_exact_case_insensitive_thumbnail_stem(tmp_path):

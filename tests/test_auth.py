@@ -6,7 +6,7 @@ import pytest
 from google.auth.exceptions import RefreshError
 from google.oauth2.credentials import Credentials
 
-from katy404_youtube_agent.auth import (
+from yt_uploader.auth import (
     AuthorizationRevokedError,
     CredentialStore,
     authorize_desktop,
@@ -89,7 +89,7 @@ def test_authorize_uses_desktop_flow_and_saves_owner_credential(tmp_path, fake_k
     flow = Mock()
     flow.run_local_server.return_value = fake_credentials()
     monkeypatch.setattr(
-        "katy404_youtube_agent.auth.InstalledAppFlow.from_client_secrets_file",
+        "yt_uploader.auth.oauth.InstalledAppFlow.from_client_secrets_file",
         lambda *args, **kwargs: flow,
     )
     store = CredentialStore(fake_keyring)
@@ -117,7 +117,7 @@ def test_authorize_named_account_uses_ipv4_loopback_callback(tmp_path, fake_keyr
     flow.run_local_server.return_value = fake_credentials()
     flow_factory = Mock(return_value=flow)
     monkeypatch.setattr(
-        "katy404_youtube_agent.auth.InstalledAppFlow.from_client_secrets_file",
+        "yt_uploader.auth.oauth.InstalledAppFlow.from_client_secrets_file",
         flow_factory,
     )
     store = CredentialStore(fake_keyring)
@@ -149,7 +149,7 @@ def test_authorization_started_callback_runs_after_flow_setup_before_google(tmp_
         return flow
 
     monkeypatch.setattr(
-        "katy404_youtube_agent.auth.InstalledAppFlow.from_client_secrets_file",
+        "yt_uploader.auth.oauth.InstalledAppFlow.from_client_secrets_file",
         make_flow,
     )
     store = CredentialStore(fake_keyring)
@@ -182,7 +182,7 @@ def test_authorize_accepts_desktop_client_without_project_metadata(tmp_path, fak
     flow = Mock()
     flow.run_local_server.return_value = fake_credentials()
     flow_factory = Mock(return_value=flow)
-    monkeypatch.setattr("katy404_youtube_agent.auth.InstalledAppFlow.from_client_secrets_file", flow_factory)
+    monkeypatch.setattr("yt_uploader.auth.oauth.InstalledAppFlow.from_client_secrets_file", flow_factory)
 
     callback_calls = []
     credentials = authorize_desktop(
@@ -197,7 +197,7 @@ def test_authorize_accepts_desktop_client_without_project_metadata(tmp_path, fak
 
 
 def test_revoke_sends_token_then_deletes_local_credential(fake_keyring, monkeypatch):
-    import katy404_youtube_agent.auth as auth
+    import yt_uploader.auth.credentials as auth
 
     store = CredentialStore(fake_keyring)
     store.save("owner", fake_credentials())

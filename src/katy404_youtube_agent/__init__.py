@@ -1,3 +1,5 @@
-"""Local YouTube batch uploader for the Katy404 channel."""
+"""Compatibility alias: the uploader now lives in ``yt_uploader``."""
 
-__version__ = "0.3.0"
+from yt_uploader import __version__
+
+__all__ = ["__version__"]

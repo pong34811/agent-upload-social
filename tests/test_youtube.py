@@ -6,8 +6,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from katy404_youtube_agent.models import ApiVideoSnapshot, UploadChunkResult, VideoUploadResult
-from katy404_youtube_agent.youtube import (
+from yt_uploader.models import ApiVideoSnapshot, UploadChunkResult, VideoUploadResult
+from yt_uploader.youtube import (
     QuotaExceeded,
     ResumableTransport,
     ResumableUploader,

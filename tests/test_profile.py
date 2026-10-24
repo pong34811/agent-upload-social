@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from katy404_youtube_agent.profile import (
+from yt_uploader.config.profile import (
     ProfileError,
     ProfileStore,
     load_profile,

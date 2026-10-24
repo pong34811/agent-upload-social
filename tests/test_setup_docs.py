@@ -4,7 +4,7 @@ from pathlib import Path
 def test_readme_documents_agent_skill_and_direct_upload_command():
     readme = Path("README.md").read_text(encoding="utf-8")
 
-    assert ".agents/skills/kt404-youtube-upload/SKILL.md" in readme
+    assert ".agents/skills/youtube-upload/SKILL.md" in readme
     assert 'upload --profile "<ชื่อโปรไฟล์>" --folder "<โฟลเดอร์คลิป>" --channel "<handle หรือ channel ID>"' in readme
 
 

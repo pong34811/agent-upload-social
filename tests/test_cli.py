@@ -7,15 +7,15 @@ from unittest.mock import Mock
 import pytest
 
 from conftest import NOW
-from katy404_youtube_agent.auth import (
+from yt_uploader.auth import (
     AuthorizationRevokedError,
     ChannelRef,
     ChannelResolutionError,
     OWNER_ACCOUNT_KEY,
 )
-from katy404_youtube_agent.cli import CliApp, OAuthService
-from katy404_youtube_agent.local_oauth_status import LocalOAuthStatusPage
-from katy404_youtube_agent.models import ApiVideoSnapshot, BatchReport, UploadItemResult
+from yt_uploader.cli import CliApp, OAuthService
+from yt_uploader.auth.status_page import LocalOAuthStatusPage
+from yt_uploader.models import ApiVideoSnapshot, BatchReport, UploadItemResult
 
 
 def test_upload_limit_report_identifies_channel_limit(capsys):
@@ -186,7 +186,7 @@ def test_oauth_service_reports_success_in_page_states(monkeypatch):
         on_authorization_started()
         return credential
 
-    monkeypatch.setattr("katy404_youtube_agent.auth.authorize_desktop", authorize)
+    monkeypatch.setattr("yt_uploader.auth.oauth.authorize_desktop", authorize)
     service = OAuthService(status_page_factory=lambda: page)
 
     result = service.authorize(Path("client.json"), object())
@@ -203,7 +203,7 @@ def test_oauth_service_marks_stopped_and_finishes_after_authorization_error(monk
         on_authorization_started()
         raise RuntimeError("private OAuth response body")
 
-    monkeypatch.setattr("katy404_youtube_agent.auth.authorize_desktop", authorize)
+    monkeypatch.setattr("yt_uploader.auth.oauth.authorize_desktop", authorize)
     service = OAuthService(status_page_factory=lambda: page)
 
     with pytest.raises(RuntimeError, match="private OAuth response body"):
@@ -220,7 +220,7 @@ def test_oauth_service_marks_stopped_when_owner_interrupts_authorization(monkeyp
         on_authorization_started()
         raise KeyboardInterrupt()
 
-    monkeypatch.setattr("katy404_youtube_agent.auth.authorize_desktop", authorize)
+    monkeypatch.setattr("yt_uploader.auth.oauth.authorize_desktop", authorize)
     service = OAuthService(status_page_factory=lambda: page)
 
     with pytest.raises(KeyboardInterrupt):
@@ -231,7 +231,7 @@ def test_oauth_service_marks_stopped_when_owner_interrupts_authorization(monkeyp
 
 @pytest.mark.parametrize("browser_result", [False, "raise"])
 def test_oauth_page_open_failure_stops_before_google_api_or_upload(cli, monkeypatch, capsys, browser_result):
-    import katy404_youtube_agent.auth as auth
+    import yt_uploader.auth as auth
 
     cli.credentials.load.side_effect = lambda _key: None
     flow = Mock()
@@ -264,7 +264,7 @@ def test_oauth_page_open_failure_stops_before_google_api_or_upload(cli, monkeypa
 
 @pytest.mark.parametrize("failure_stage", ["google_consent", "credential_store"])
 def test_oauth_failure_stops_before_upload_and_hides_exception_body(cli, monkeypatch, capsys, failure_stage):
-    import katy404_youtube_agent.auth as auth
+    import yt_uploader.auth as auth
 
     cli.credentials.load.side_effect = lambda _key: None
     page = RecordingOAuthStatusPage()
@@ -412,7 +412,7 @@ def test_batch_errors_return_one(cli):
 
 
 def test_thumbnail_failure_is_reported_as_batch_error(cli):
-    from katy404_youtube_agent.models import UploadItemResult
+    from yt_uploader.models import UploadItemResult
 
     cli.runner.upload.side_effect = lambda *args, **kwargs: BatchReport(
         [UploadItemResult("uploaded_thumbnail_failed", Path("clip.mov"), video_id="video-1", error_code="quota")],

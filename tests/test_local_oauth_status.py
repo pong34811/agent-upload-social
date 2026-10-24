@@ -8,7 +8,7 @@ import urllib.request
 
 import pytest
 
-from katy404_youtube_agent.local_oauth_status import (
+from yt_uploader.auth.status_page import (
     LocalOAuthStatusPage,
     OAuthStatusPageError,
 )

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from .models import MediaCandidate, ScanIssue
+from ..models import MediaCandidate, ScanIssue
 
 _VIDEO_SUFFIXES = {".mov", ".mp4"}
 _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png"}

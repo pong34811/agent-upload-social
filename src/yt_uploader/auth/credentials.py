@@ -1,21 +1,17 @@
-"""Desktop OAuth, Windows credential storage, and owned-channel selection."""
+"""Per-account OAuth token files and their granted-scope markers."""
 
 from __future__ import annotations
 
 import json
 import os
 import re
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Sequence
 
-import keyring
 import requests
-from google.auth.exceptions import RefreshError
-from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
+
+from ..paths import OWNER_TOKEN_PATH
 
 CREDENTIAL_SERVICE = "Katy404 YouTube Uploader"
 OWNER_ACCOUNT_KEY = "owner"
@@ -50,16 +46,6 @@ class AuthorizationRevokedError(AuthorizationRequiredError):
     """Raised when Google reports that the stored grant is no longer valid."""
 
 
-class ChannelResolutionError(ValueError):
-    """Raised when a requested channel is not an exact, unique owned channel."""
-
-
-@dataclass(frozen=True, slots=True)
-class ChannelRef:
-    channel_id: str
-    display_name: str
-    handle: str | None = None
-
 
 class CredentialStore:
     """Store OAuth credentials in separate ignored files for each account.
@@ -71,7 +57,7 @@ class CredentialStore:
 
     def __init__(self, backend: Any | None = None, path: Path | None = None) -> None:
         self._backend = backend
-        self.path = Path(path) if path is not None else Path(__file__).resolve().parents[2] / TOKEN_FILENAME
+        self.path = Path(path) if path is not None else OWNER_TOKEN_PATH
 
     def _account_path(self, account_key: str) -> Path:
         self._validate_account_key(account_key)
@@ -364,129 +350,3 @@ class CredentialStore:
                     "Revoke access from Google Security settings."
                 ) from exc
         self.delete(account_key)
-
-
-def _validate_desktop_client(client_secrets_path: Path) -> None:
-    client_secrets_path = Path(client_secrets_path)
-    try:
-        data = json.loads(client_secrets_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise OAuthConfigurationError("Could not read Desktop OAuth client file") from exc
-    installed = data.get("installed") if isinstance(data, dict) else None
-    if not isinstance(installed, dict):
-        raise OAuthConfigurationError("OAuth client must use the Desktop installed-app format")
-
-
-def authorize_desktop(
-    client_secrets_path: Path,
-    credential_store: CredentialStore,
-    *,
-    account_key: str = OWNER_ACCOUNT_KEY,
-    on_authorization_started: Callable[[], None] | None = None,
-) -> Credentials:
-    """Open the local browser consent flow and save the grant under its account label."""
-    CredentialStore._validate_account_key(account_key)
-    _validate_desktop_client(client_secrets_path)
-    flow = InstalledAppFlow.from_client_secrets_file(str(client_secrets_path), scopes=SCOPES)
-    if on_authorization_started is not None:
-        on_authorization_started()
-    credentials = flow.run_local_server(
-        host="127.0.0.1",
-        port=0,
-        access_type="offline",
-        prompt="consent" if account_key == OWNER_ACCOUNT_KEY else "select_account consent",
-        timeout_seconds=OAUTH_AUTHORIZATION_TIMEOUT_SECONDS,
-    )
-    granted_scopes = getattr(credentials, "granted_scopes", None)
-    if not granted_scopes:
-        # Google omits a distinct granted_scopes list when consent matched the
-        # requested set; in that case the successful consent response uses scopes.
-        granted_scopes = getattr(credentials, "scopes", None)
-    credential_store.save(account_key, credentials, granted_scopes=granted_scopes or ())
-    return credentials
-
-
-def refresh_credentials(
-    account_key: str, credential_store: CredentialStore, credentials: Credentials
-) -> Credentials:
-    """Refresh an existing user grant; stop and erase it when Google revokes it."""
-    if not credentials.refresh_token:
-        credential_store.delete(account_key)
-        raise AuthorizationRequiredError("A new Desktop OAuth consent is required")
-    try:
-        credentials.refresh(Request())
-    except RefreshError as exc:
-        if "invalid_grant" in str(exc).casefold():
-            credential_store.delete(account_key)
-            raise AuthorizationRevokedError(
-                "Google authorization was revoked or expired; authorize the owner account again"
-            ) from exc
-        raise
-    credential_store.save(account_key, credentials)
-    return credentials
-
-
-def execute_api_request(request: Any) -> Any:
-    """Translate a revoked grant during discovery-client refresh into a safe auth error."""
-    try:
-        return request.execute()
-    except RefreshError as exc:
-        if "invalid_grant" in str(exc).casefold():
-            raise AuthorizationRevokedError(
-                "Google authorization was revoked or expired; authorize the owner account again"
-            ) from exc
-        raise
-
-
-def _canonical_handle(value: str) -> str:
-    value = value.strip()
-    return (value if value.startswith("@") else f"@{value}").casefold()
-
-
-def resolve_channel(requested: str, owned_channels: Sequence[ChannelRef]) -> ChannelRef:
-    """Match only an exact channel ID, handle, or display name."""
-    target = requested.strip()
-    if not target:
-        raise ChannelResolutionError("A channel ID, handle, or exact display name is required")
-    matches: dict[str, ChannelRef] = {}
-    for channel in owned_channels:
-        if channel.channel_id == target:
-            matches[channel.channel_id] = channel
-        if channel.display_name.casefold() == target.casefold():
-            matches[channel.channel_id] = channel
-        if channel.handle and _canonical_handle(channel.handle) == _canonical_handle(target):
-            matches[channel.channel_id] = channel
-    if not matches:
-        raise ChannelResolutionError(f"No owned YouTube channel matches exactly: {target}")
-    if len(matches) != 1:
-        raise ChannelResolutionError(f"Channel name or handle is ambiguous: {target}")
-    return next(iter(matches.values()))
-
-
-class YouTubeApi:
-    """Small authenticated YouTube Data API wrapper used for owned-channel lookup."""
-
-    def __init__(self, credentials: Credentials, client: Any | None = None) -> None:
-        self.client = client or build("youtube", "v3", credentials=credentials, cache_discovery=False)
-
-    def list_owned_channels(self) -> list[ChannelRef]:
-        channels: list[ChannelRef] = []
-        page_token: str | None = None
-        while True:
-            params: dict[str, Any] = {"part": "id,snippet", "mine": True, "maxResults": 50}
-            if page_token:
-                params["pageToken"] = page_token
-            response = execute_api_request(self.client.channels().list(**params))
-            for item in response.get("items", []):
-                snippet = item.get("snippet") or {}
-                channel_id = item.get("id")
-                display_name = snippet.get("title")
-                if not isinstance(channel_id, str) or not isinstance(display_name, str):
-                    continue
-                custom_url = snippet.get("customUrl")
-                handle = custom_url if isinstance(custom_url, str) and custom_url.startswith("@") else None
-                channels.append(ChannelRef(channel_id, display_name, handle))
-            page_token = response.get("nextPageToken")
-            if not page_token:
-                break
-        return channels

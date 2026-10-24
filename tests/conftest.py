@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from katy404_youtube_agent.models import MediaCandidate, UploadProfile, VideoMetadata
+from yt_uploader.models import MediaCandidate, UploadProfile, VideoMetadata
 
 
 NOW = datetime(2026, 9, 26, tzinfo=timezone.utc)
@@ -63,7 +63,7 @@ def metadata():
 
 @pytest.fixture
 def store(tmp_path):
-    from katy404_youtube_agent.store import JobStore
+    from yt_uploader.jobs.store import JobStore
 
     return JobStore(tmp_path / "state.sqlite3")
 

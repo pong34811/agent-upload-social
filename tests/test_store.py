@@ -4,7 +4,7 @@ from datetime import timedelta
 import pytest
 
 from conftest import NOW
-from katy404_youtube_agent.store import JobStateError, JobStore
+from yt_uploader.jobs.store import JobStateError, JobStore
 
 
 def test_completed_hash_and_channel_are_reused_instead_of_requeued(store, candidate, metadata):

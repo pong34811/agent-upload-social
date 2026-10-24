@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from katy404_youtube_agent.media import (
+from yt_uploader.media import (
     MediaProbeError,
     MetadataError,
     build_metadata,
     probe_media,
 )
-from katy404_youtube_agent.models import MediaCandidate, MediaFacts, UploadProfile
+from yt_uploader.models import MediaCandidate, MediaFacts, UploadProfile
 
 
 def test_metadata_strips_internal_prefix_and_preserves_thai_and_short_suffix(candidate, valid_profile):
@@ -73,7 +73,7 @@ def test_probe_media_reports_ffprobe_failure(tmp_path, monkeypatch):
     video = tmp_path / "clip.mov"
     video.write_bytes(b"not a real movie")
     monkeypatch.setattr(
-        "katy404_youtube_agent.media.subprocess.run",
+        "yt_uploader.media.probe.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 1, "", "invalid media"),
     )
 
@@ -89,7 +89,7 @@ def test_probe_media_parses_duration_dimensions_and_codec(tmp_path, monkeypatch)
         {"codec_type": "video", "codec_name": "h264", "width": 1080, "height": 1920},
     ]}
     monkeypatch.setattr(
-        "katy404_youtube_agent.media.subprocess.run",
+        "yt_uploader.media.probe.subprocess.run",
         lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, json.dumps(payload), ""),
     )
 
@@ -101,7 +101,7 @@ def test_probe_media_parses_duration_dimensions_and_codec(tmp_path, monkeypatch)
 def test_probe_media_reports_missing_ffprobe(tmp_path, monkeypatch):
     video = tmp_path / "clip.mov"
     video.write_bytes(b"video")
-    monkeypatch.setattr("katy404_youtube_agent.media.subprocess.run", lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError("ffprobe missing")))
+    monkeypatch.setattr("yt_uploader.media.probe.subprocess.run", lambda *args, **kwargs: (_ for _ in ()).throw(FileNotFoundError("ffprobe missing")))
 
     with pytest.raises(MediaProbeError, match="ffprobe"):
         probe_media(video, ffprobe=Path("ffprobe.exe"))
@@ -122,7 +122,7 @@ def test_metadata_rejects_title_over_100_characters(candidate, valid_profile):
 
 
 def test_vertical_short_hashtags_includes_shorts():
-    from katy404_youtube_agent.media import _vertical_short_hashtags
+    from yt_uploader.media.metadata import _vertical_short_hashtags
 
     candidate = MediaCandidate(
         path=Path("test_Minecraft-vdo_9x16.mov"),
@@ -156,7 +156,7 @@ def test_vertical_short_hashtags_includes_shorts():
 
 
 def test_long_vertical_title_truncated_to_fit_hashtags_without_filename_suffix():
-    from katy404_youtube_agent.media import _truncate_title_to_fit_hashtags
+    from yt_uploader.media.metadata import _truncate_title_to_fit_hashtags
 
     long_title = "คุยกับเพื่อนตั้งนาน ลืมเอาเสียงเข้าไลฟ์_Minecraft-vdo_9x16"
     hashtags = ["#katy404", "#vtuberth", "#วันว่างๆ", "#shorts"]
@@ -165,3 +165,51 @@ def test_long_vertical_title_truncated_to_fit_hashtags_without_filename_suffix()
     assert not result.endswith("-vdo_9x16")
     assert "#shorts" in result
     assert "#katy404" in result
+
+
+def _vertical_candidate(name):
+    return MediaCandidate(
+        path=Path(name),
+        thumbnail_path=Path(name).with_suffix(".jpg"),
+        sha256="a" * 64,
+        thumbnail_sha256="b" * 64,
+        size_bytes=1000,
+        thumbnail_size_bytes=100,
+        modified_ns=0,
+    )
+
+
+def test_default_shorts_hashtag_template_keeps_previous_channel_and_game_tags(valid_profile):
+    from yt_uploader.media.metadata import _vertical_short_hashtags
+
+    hashtags = _vertical_short_hashtags(_vertical_candidate("vdo_บอส_Minecraft_9x16.mov"), valid_profile)
+
+    assert hashtags == ["#Katy404", "#vtuberth", "#Minecraft", "#วันว่างๆ", "#shorts"]
+
+
+def test_shorts_hashtag_template_comes_from_profile_and_drops_missing_game(valid_profile):
+    from yt_uploader.media.metadata import _vertical_short_hashtags
+
+    profile = dataclasses.replace(
+        valid_profile, shorts_hashtag_template=("#{channel}", "#{game}", "#roblox", "#shorts")
+    )
+
+    assert _vertical_short_hashtags(_vertical_candidate("vdo_บอส_Roblox_9x16.mov"), profile) == [
+        "#Katy404", "#Roblox", "#roblox", "#shorts",
+    ]
+    assert _vertical_short_hashtags(_vertical_candidate("บอส9x16_9x16.mov"), profile) == [
+        "#Katy404", "#roblox", "#shorts",
+    ]
+
+
+def test_profile_rejects_shorts_hashtag_template_with_unknown_placeholder(tmp_path):
+    from yt_uploader.config.profile import ProfileError, load_profile
+
+    path = tmp_path / "profile.json"
+    path.write_text(
+        json.dumps({"channel_alias": "Katy404", "shorts_hashtag_template": ["#{title}"]}),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ProfileError, match="shorts_hashtag_template"):
+        load_profile(path)

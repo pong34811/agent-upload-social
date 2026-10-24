@@ -1,11 +1,11 @@
 import pytest
 
-from katy404_youtube_agent.auth import (
+from yt_uploader.auth import (
     ChannelRef,
     ChannelResolutionError,
-    YouTubeApi,
     resolve_channel,
 )
+from yt_uploader.youtube import YouTubeApi
 
 
 def test_channel_resolution_stops_on_duplicate_display_names():

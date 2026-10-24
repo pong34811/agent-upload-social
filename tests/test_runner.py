@@ -8,13 +8,13 @@ import pytest
 from httplib2 import HttpLib2Error
 
 from conftest import NOW
-from katy404_youtube_agent.auth import AuthorizationRevokedError, ChannelRef, ChannelResolutionError
-from katy404_youtube_agent.media import build_metadata
-from katy404_youtube_agent.models import MediaFacts, ThumbnailResult, UploadChunkResult, VideoUploadResult
-from katy404_youtube_agent.scanner import scan_folder
-from katy404_youtube_agent.runner import BatchRunner
-from katy404_youtube_agent.store import JobStateError
-from katy404_youtube_agent.youtube import QuotaExceeded, RetryableUploadError, ThumbnailError, VideoSchedulingError
+from yt_uploader.auth import AuthorizationRevokedError, ChannelRef, ChannelResolutionError
+from yt_uploader.media import build_metadata
+from yt_uploader.models import MediaFacts, ThumbnailResult, UploadChunkResult, VideoUploadResult
+from yt_uploader.media.scanner import scan_folder
+from yt_uploader.pipeline.upload import BatchRunner
+from yt_uploader.jobs.store import JobStateError
+from yt_uploader.youtube import QuotaExceeded, RetryableUploadError, ThumbnailError, VideoSchedulingError
 
 
 class FakeApi:

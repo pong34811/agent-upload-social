@@ -9,9 +9,11 @@ from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any
 
-from .models import UploadProfile
+from ..models import UploadProfile
+from ..paths import LEGACY_PROFILE_PATH
 
 _ALLOWED_PRIVACY = {"private", "unlisted", "public"}
+_PLACEHOLDER = re.compile(r"{([^{}]*)}")
 
 
 class ProfileError(ValueError):
@@ -19,7 +21,7 @@ class ProfileError(ValueError):
 
 
 def _profile_path_default() -> Path:
-    return Path(__file__).resolve().parents[2] / "profile.json"
+    return LEGACY_PROFILE_PATH
 
 
 def load_profile(path: Path) -> UploadProfile:
@@ -57,11 +59,23 @@ def load_profile(path: Path) -> UploadProfile:
     ):
         raise ProfileError("vertical_short_hashtags must be a list of strings")
     data["vertical_short_hashtags"] = tuple(vertical_short_hashtags)
+    if "shorts_hashtag_template" in data:
+        data["shorts_hashtag_template"] = _hashtag_template(data["shorts_hashtag_template"])
 
     try:
         return UploadProfile(**data)
     except TypeError as exc:
         raise ProfileError("Upload profile has invalid or missing fields") from exc
+
+
+def _hashtag_template(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or not all(isinstance(tag, str) for tag in value):
+        raise ProfileError("shorts_hashtag_template must be a list of strings")
+    for tag in value:
+        placeholders = set(_PLACEHOLDER.findall(tag))
+        if placeholders - {"channel", "game"}:
+            raise ProfileError("shorts_hashtag_template supports only {channel} and {game}")
+    return tuple(value)
 
 
 def save_profile(path: Path, profile: UploadProfile) -> None:
@@ -76,6 +90,7 @@ def save_profile(path: Path, profile: UploadProfile) -> None:
     )
     payload["tags"] = list(profile.tags)
     payload["vertical_short_hashtags"] = list(profile.vertical_short_hashtags)
+    payload["shorts_hashtag_template"] = list(profile.shorts_hashtag_template)
     encoded = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
 
     temporary_path: Path | None = None

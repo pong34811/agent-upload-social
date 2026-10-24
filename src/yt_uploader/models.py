@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+DEFAULT_SHORTS_HASHTAG_TEMPLATE = ("#{channel}", "#vtuberth", "#{game}", "#วันว่างๆ", "#shorts")
+
 
 @dataclass(frozen=True, slots=True)
 class UploadProfile:
@@ -23,6 +25,9 @@ class UploadProfile:
     is_official_artist_channel: bool = False
     shorts_title_suffix: str = " #Shorts"
     vertical_short_hashtags: tuple[str, ...] = field(default_factory=tuple)
+    # Used when vertical_short_hashtags is empty. {channel} is the channel_alias as a
+    # hashtag; {game} is the last "_" token of the filename and is dropped when absent.
+    shorts_hashtag_template: tuple[str, ...] = DEFAULT_SHORTS_HASHTAG_TEMPLATE
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +137,7 @@ class UploadItemResult:
     thumbnail_status: str | None = None
     error_code: str | None = None
     scheduled_publish_at: str | None = None
+    title: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

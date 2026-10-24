@@ -26,7 +26,7 @@ _HTML = """<!doctype html>
 <body>
   <main class="card">
     <div class="brand-mark" aria-hidden="true">▶</div>
-    <p class="eyebrow">KATY404 · YOUTUBE</p>
+    <p class="eyebrow">YOUTUBE UPLOADER</p>
     <h1>เชื่อมต่อบัญชี YouTube</h1>
     <div class="status-line" role="status" aria-live="polite">
       <span id="status-dot" class="dot" aria-hidden="true"></span>

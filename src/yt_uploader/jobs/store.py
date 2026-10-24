@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Iterator, Mapping
 from urllib.parse import urlparse
 
-from .models import MediaCandidate, UploadJob, VideoMetadata
+from ..models import MediaCandidate, UploadJob, VideoMetadata
+from ..paths import DB_PATH
 
 _STATES = {"discovered", "validated", "uploading", "uploaded", "complete", "failed", "skipped"}
 _TERMINAL_STATES = {"complete", "failed", "skipped"}
@@ -26,7 +27,7 @@ class JobStateError(RuntimeError):
 
 
 def _default_db_path() -> Path:
-    return Path(__file__).resolve().parents[2] / "state.sqlite3"
+    return DB_PATH
 
 
 def _parse_utc(value: datetime | str) -> datetime:
